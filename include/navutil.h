@@ -117,9 +117,9 @@ class Track : public wxEvtHandler, public Route
             double GetXTE( double fm1Lat, double fm1Lon, double fm2Lat, double fm2Lon, double toLat, double toLon  );
             int GetCurrentTrackSeg(){ return m_CurrentTrackSeg; }
             void SetCurrentTrackSeg(int seg){ m_CurrentTrackSeg = seg; }
-            
+
             void AdjustCurrentTrackPoint( RoutePoint *prototype );
-            
+
       private:
             void OnTimerTrack(wxTimerEvent& event);
             void AddPointNow(bool do_add_point = false);
@@ -143,7 +143,7 @@ class Track : public wxEvtHandler, public Route
             int               m_track_run;
             double            m_minTrackpoint_delta;
             int               m_CurrentTrackSeg;
-            
+
             enum eTrackPointState {
                 firstPoint,
                 secondPoint,
@@ -200,7 +200,7 @@ public:
       virtual bool UpdateWayPoint(RoutePoint *pWP);
       virtual bool DeleteWayPoint(RoutePoint *pWP);
       virtual bool AddNewTrackPoint( RoutePoint *pWP, const wxString& parent_GUID );
-      
+
       virtual void CreateConfigGroups ( ChartGroupArray *pGroupArray );
       virtual void DestroyConfigGroups ( void );
       virtual void LoadConfigGroups ( ChartGroupArray *pGroupArray );
@@ -212,6 +212,9 @@ public:
       virtual void UpdateNavObj();
 
       bool LoadLayers(wxString &path);
+
+      //CHANGE: declare function to export without GUI
+      void ExportGPXNoFileSelectorVersion2( wxString file_path, bool bviz_only = true, bool blayer = false);
 
       void ExportGPX(wxWindow* parent, bool bviz_only = false, bool blayer = false);
       void UI_ImportGPX(wxWindow* parent, bool islayer = false, wxString dirpath = _T(""), bool isdirectory = true);
@@ -232,7 +235,7 @@ public:
       NavObjectChanges        *m_pNavObjectChangesSet;
       NavObjectCollection1    *m_pNavObjectInputSet;
       bool                    m_bSkipChangeSetUpdate;
-      
+
 //    These members are set/reset in Options dialog
       bool  m_bShowMenuBar, m_bShowCompassWin;
 
