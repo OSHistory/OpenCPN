@@ -26,12 +26,13 @@
 #ifndef __CHARTDBS_H__
 #define __CHARTDBS_H__
 
-//#include "chart1.h"
+#include <map>
+
 #include "ocpn_types.h"
 #include "bbox.h"
 #include "LLRegion.h"
 
-class wxProgressDialog;
+class wxGenericProgressDialog;
 class ChartBase;
 
 //    A small class used in an array to describe chart directories
@@ -194,6 +195,8 @@ struct ChartTableEntry
     bool Write(const ChartDatabase *pDb, wxOutputStream &os);
     void Clear();
     void Disable();
+    void ReEnable();
+    
     void SetValid(bool valid) { bValid = valid; }
     time_t GetFileTime() const { return file_date; }
 
@@ -208,7 +211,7 @@ struct ChartTableEntry
     float *GetpNoCovrPlyTableEntry(int index) const { return pNoCovrPlyTable[index];}
     int GetNoCovrCntTableEntry(int index) const { return pNoCovrCntTable[index];}
     
-    const wxBoundingBox &GetBBox() const { return m_bbox; } 
+    const LLBBox &GetBBox() const { return m_bbox; } 
     
     char *GetpFullPath() const { return pFullPath; }
     float GetLonMax() const { return LonMax; }
@@ -259,7 +262,7 @@ struct ChartTableEntry
     ArrayOfInts m_GroupArray;
     wxString    *m_pfilename;             // a helper member, not on disk
     wxString    *m_psFullPath;
-    wxBoundingBox m_bbox;
+    LLBBox m_bbox;
     bool        m_bavail;
 };
 
@@ -297,8 +300,8 @@ public:
     ChartDatabase();
     virtual ~ChartDatabase(){};
 
-    bool Create(ArrayOfCDI& dir_array, wxProgressDialog *pprog);
-    bool Update(ArrayOfCDI& dir_array, bool bForce, wxProgressDialog *pprog);
+    bool Create(ArrayOfCDI& dir_array, wxGenericProgressDialog *pprog);
+    bool Update(ArrayOfCDI& dir_array, bool bForce, wxGenericProgressDialog *pprog);
 
     bool Read(const wxString &filePath);
     bool Write(const wxString &filePath);
@@ -329,8 +332,8 @@ public:
     int GetDBChartProj(int dbIndex);
     int GetDBChartScale(int dbIndex);
 
-    bool GetDBBoundingBox(int dbindex, wxBoundingBox *box);
-    const wxBoundingBox &GetDBBoundingBox(int dbIndex);
+    bool GetDBBoundingBox(int dbindex, LLBBox &box);
+    const LLBBox &GetDBBoundingBox(int dbIndex);
     
     int  GetnAuxPlyEntries(int dbIndex);
     int  GetDBPlyPoint(int dbIndex, int plyindex, float *lat, float *lon);
@@ -342,6 +345,7 @@ public:
     void ApplyGroupArray(ChartGroupArray *pGroupArray);
     bool IsChartAvailable( int dbIndex );
     ChartTable    active_chartTable;
+    std::map <wxString, int> active_chartTable_pathindex;
     
 protected:
     virtual ChartBase *GetChart(const wxChar *theFilePath, ChartClassDescriptor &chart_desc) const;
@@ -355,12 +359,12 @@ protected:
 private:
     bool IsChartDirUsed(const wxString &theDir);
 
-    int SearchDirAndAddCharts(wxString& dir_name_base, ChartClassDescriptor &chart_desc, wxProgressDialog *pprog);
+    int SearchDirAndAddCharts(wxString& dir_name_base, ChartClassDescriptor &chart_desc, wxGenericProgressDialog *pprog);
 
-    int TraverseDirAndAddCharts(ChartDirInfo& dir_info, wxProgressDialog *pprog, wxString& dir_magic, bool bForce);
-    bool DetectDirChange(const wxString & dir_path, const wxString & magic, wxString &new_magic, wxProgressDialog *pprog);
+    int TraverseDirAndAddCharts(ChartDirInfo& dir_info, wxGenericProgressDialog *pprog, wxString& dir_magic, bool bForce);
+    bool DetectDirChange(const wxString & dir_path, const wxString & magic, wxString &new_magic, wxGenericProgressDialog *pprog);
 
-    bool AddChart( wxString &chartfilename, ChartClassDescriptor &chart_desc, wxProgressDialog *pprog,
+    bool AddChart( wxString &chartfilename, ChartClassDescriptor &chart_desc, wxGenericProgressDialog *pprog,
                    int isearch, bool bthis_dir_in_dB );
 
     bool Check_CM93_Structure(wxString dir_name);
@@ -377,7 +381,7 @@ private:
     
     int         m_nentries;
 
-    wxBoundingBox m_dummy_bbox;
+    LLBBox m_dummy_bbox;
 };
 
 

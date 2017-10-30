@@ -40,7 +40,7 @@
 #include "grib_pi.h"
 
 #ifdef __WXQT__
-#include "qdebug.h"
+//#include "qdebug.h"
 #endif
 
 // the class factories, used to create and destroy instances of the PlugIn
@@ -79,6 +79,7 @@ grib_pi::grib_pi(void *ppimgr)
       initialize_images();
       m_pLastTimelineSet = NULL;
       m_bShowGrib = false;
+      m_GUIScaleFactor = -1.;
 }
 
 grib_pi::~grib_pi(void)
@@ -367,7 +368,7 @@ void grib_pi::OnToolbarToolCallback(int id)
 
     double scale_factor = GetOCPNGUIToolScaleFactor_PlugIn();
     if( scale_factor != m_GUIScaleFactor ) starting = true;
-    
+
     if(!m_pGribCtrlBar)
     {
         starting = true;
@@ -375,7 +376,7 @@ void grib_pi::OnToolbarToolCallback(int id)
         m_pGribCtrlBar = new GRIBUICtrlBar(m_parent_window, wxID_ANY, wxEmptyString, wxDefaultPosition,
                 wxDefaultSize, style, this);
 		m_pGribCtrlBar->SetScaledBitmap(scale_factor);
-        
+
         wxMenu* dummy = new wxMenu(_T("Plugin"));
         wxMenuItem* table = new wxMenuItem( dummy, wxID_ANY, wxString( _("Weather table") ), wxEmptyString, wxITEM_NORMAL );
 #ifdef __WXMSW__
@@ -404,22 +405,27 @@ void grib_pi::OnToolbarToolCallback(int id)
     if(m_bShowGrib) {
         if( starting ) {
             SetDialogFont( m_pGribCtrlBar );
-			m_GUIScaleFactor = scale_factor;
-			m_pGribCtrlBar->SetScaledBitmap( m_GUIScaleFactor );
+            m_GUIScaleFactor = scale_factor;
+            m_pGribCtrlBar->SetScaledBitmap( m_GUIScaleFactor );
             m_pGribCtrlBar->SetDialogsStyleSizePosition( true );
             m_pGribCtrlBar->Refresh();
         } else {
-			MoveDialog(m_pGribCtrlBar, GetCtrlBarXY());
+            MoveDialog(m_pGribCtrlBar, GetCtrlBarXY());
             if( m_DialogStyle >> 1 == SEPARATED ) {
-				MoveDialog(m_pGribCtrlBar->GetCDataDialog(), GetCursorDataXY());
+                MoveDialog(m_pGribCtrlBar->GetCDataDialog(), GetCursorDataXY());
                 m_pGribCtrlBar->GetCDataDialog()->Show( m_pGribCtrlBar->m_CDataIsShown );
-                }
+            }
         }
         m_pGribCtrlBar->Show();
         if( m_pGribCtrlBar->m_bGRIBActiveFile ) {
             if( m_pGribCtrlBar->m_bGRIBActiveFile->IsOK() ) {
                 ArrayOfGribRecordSets *rsa = m_pGribCtrlBar->m_bGRIBActiveFile->GetRecordSetArrayPtr();
-                if(rsa->GetCount() > 1) SetCanvasContextMenuItemViz( m_MenuItem, true);
+                if(rsa->GetCount() > 1) {
+                    SetCanvasContextMenuItemViz( m_MenuItem, true);
+                }
+                if(rsa->GetCount() >= 1) { // XXX Should be only on Show
+                    SendTimelineMessage(m_pGribCtrlBar->TimelineTime());
+                }
             }
         }
         // Toggle is handled by the CtrlBar but we must keep plugin manager b_toggle updated
@@ -445,9 +451,9 @@ void grib_pi::OnGribCtrlBarClose()
 
 	if (::wxIsBusy()) ::wxEndBusyCursor();
 
-#ifdef __OCPN__ANDROID__        
-    m_DialogStyleChanged = true;       //  Force a delete of the control bar dialog    
-#endif        
+#ifdef __OCPN__ANDROID__
+    m_DialogStyleChanged = true;       //  Force a delete of the control bar dialog
+#endif
 
     if( m_DialogStyleChanged ) {
         m_pGribCtrlBar->Destroy();
@@ -483,11 +489,11 @@ bool grib_pi::RenderGLOverlay(wxGLContext *pcontext, PlugIn_ViewPort *vp)
     if( m_pGribCtrlBar->pReq_Dialog )
         m_pGribCtrlBar->pReq_Dialog->RenderGlZoneOverlay();
     if( ::wxIsBusy() ) ::wxEndBusyCursor();
-    
+
     #ifdef __OCPN__ANDROID__
     m_pGribCtrlBar->Raise();    // Control bar should always be visible
     #endif
-    
+
     return true;
 }
 
@@ -532,6 +538,7 @@ void grib_pi::SetPluginMessage(wxString &message_id, wxString &message_body)
     }
     if(message_id == _T("GRIB_TIMELINE_REQUEST"))
     {
+        // local time
         SendTimelineMessage(m_pGribCtrlBar ? m_pGribCtrlBar->TimelineTime() : wxDateTime::Now());
     }
     if(message_id == _T("GRIB_TIMELINE_RECORD_REQUEST"))
@@ -565,18 +572,18 @@ void grib_pi::SetPluginMessage(wxString &message_id, wxString &message_body)
         delete m_pLastTimelineSet;
         m_pLastTimelineSet = set;
     }
-    
+
     if(message_id == _T("GRIB_APPLY_JSON_CONFIG"))
     {
         wxLogMessage(_T("Got GRIB_APPLY_JSON_CONFIG"));
-        
+
         if(m_pGribCtrlBar){
             m_pGribCtrlBar->OpenFileFromJSON(message_body);
-            
+
             m_pGribCtrlBar->m_OverlaySettings.JSONToSettings(message_body);
             m_pGribCtrlBar->m_OverlaySettings.Write();
             m_pGribCtrlBar->SetDialogsStyleSizePosition( true );
-            
+
         }
     }
 }
@@ -657,13 +664,22 @@ void grib_pi::SendTimelineMessage(wxDateTime time)
         return;
 
     wxJSONValue v;
-    v[_T("Day")] = time.GetDay();
-    v[_T("Month")] = time.GetMonth();
-    v[_T("Year")] = time.GetYear();
-    v[_T("Hour")] = time.GetHour();
-    v[_T("Minute")] = time.GetMinute();
-    v[_T("Second")] = time.GetSecond();
-
+    if (time.IsValid()) {
+        v[_T("Day")] = time.GetDay();
+        v[_T("Month")] = time.GetMonth();
+        v[_T("Year")] = time.GetYear();
+        v[_T("Hour")] = time.GetHour();
+        v[_T("Minute")] = time.GetMinute();
+        v[_T("Second")] = time.GetSecond();
+    }
+    else {
+        v[_T("Day")] = -1;
+        v[_T("Month")] = -1;
+        v[_T("Year")] = -1;
+        v[_T("Hour")] = -1;
+        v[_T("Minute")] = -1;
+        v[_T("Second")] = -1;
+    }
     wxJSONWriter w;
     wxString out;
     w.Write(v, out);

@@ -839,6 +839,16 @@
               <location>http://www.ienccloud.us/ienc/products/catalog/IENCU37ProductsCatalog.xml</location>
               <dir>{USERDATA}/ENC/US_INLAND</dir>
             </catalog>
+            <catalog>
+              <name>US ACE Inland ENC Buoy Overlay</name>
+              <location>http://www.ienccloud.us/ienc/products/catalog/IENCBuoyProductsCatalog.xml</location>
+              <dir>{USERDATA}/ENC/US_INLAND_BUOYS</dir>
+            </catalog>
+            <catalog>
+              <name>US ACE Inland ENC SW Pass Overlay</name>
+              <location>http://www.ienccloud.us/ienc/products/catalog/IENCSWPassProductsCatalog.xml</location>
+              <dir>{USERDATA}/ENC/US_INLAND_OVERLAYS</dir>
+            </catalog>
           </catalogs>
         </section>
       </sections>
@@ -846,14 +856,12 @@
     <section>
       <name>ChartCatalogs</name>
       <catalogs>
-<!-- Currently not avaialable
         <catalog>
           <name>Argentina RNC Nautical Charts</name>
           <type>RNC</type>
           <location>https://raw.githubusercontent.com/chartcatalogs/catalogs/master/AR_RNC_Catalog.xml</location>
           <dir>{USERDATA}/RNC/ARGENTINA</dir>
         </catalog>
--->
         <catalog>
           <name>Austria Inland ENC Charts</name>
           <type>ENC</type>
@@ -913,6 +921,12 @@
           <type>ENC</type>
           <location>https://raw.githubusercontent.com/chartcatalogs/catalogs/master/NL_IENC_Catalog.xml</location>
           <dir>{USERDATA}/ENC/NL_INLAND</dir>
+        </catalog>
+        <catalog>
+          <name>Netherland OSM Raster Charts</name>
+          <type>RNC</type>
+          <location>http://www.openwaterkaart.nl/charts/OSM-raster-nl/OSM-raster-nl-catalog.xml</location>
+          <dir>{USERDATA}/ENC/NL_OSMRASTER</dir>
         </catalog>
         <catalog>
           <name>New Zealand RNC Nautical Charts</name>

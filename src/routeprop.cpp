@@ -74,7 +74,7 @@ extern RouteProp          *pRoutePropDialog;
 extern Track              *g_pActiveTrack;
 extern RouteList          *pRouteList;
 extern PlugInManager      *g_pi_manager;
-extern bool                g_bShowMag;
+extern bool                g_bShowTrue, g_bShowMag;
 extern wxColour            g_colourWaypointRangeRingsColour;
 
 extern MyFrame            *gFrame;
@@ -86,10 +86,8 @@ extern wxPrintData               *g_printData;
 // Global page setup data
 extern wxPageSetupData*          g_pageSetupData;
 
-// Global print route selection dialog
-extern RoutePrintSelection * pRoutePrintSelection;
-
 extern float g_ChartScaleFactorExp;
+extern int   g_GUIScaleFactor;
 
 /*!
 * Helper stuff for calculating Route Plans
@@ -449,7 +447,6 @@ BEGIN_EVENT_TABLE( RouteProp, wxDialog )
     EVT_BUTTON( ID_ROUTEPROP_CANCEL, RouteProp::OnRoutepropCancelClick )
     EVT_BUTTON( ID_ROUTEPROP_OK, RouteProp::OnRoutepropOkClick )
     EVT_LIST_ITEM_SELECTED( ID_LISTCTRL, RouteProp::OnRoutepropListClick )
-    EVT_LIST_ITEM_SELECTED( ID_TRACKLISTCTRL, RouteProp::OnRoutepropListClick )
     EVT_BUTTON( ID_ROUTEPROP_SPLIT, RouteProp::OnRoutepropSplitClick )
     EVT_BUTTON( ID_ROUTEPROP_EXTEND, RouteProp::OnRoutepropExtendClick )
     EVT_BUTTON( ID_ROUTEPROP_PRINT, RouteProp::OnRoutepropPrintClick )
@@ -505,6 +502,8 @@ RouteProp::RouteProp( wxWindow* parent, wxWindowID id, const wxString& caption, 
     SetFont( *qFont );
         
     m_bcompact = false;
+    for(int i=0; i<COL_COUNT; i++)
+        cols[i] = -1;
     
 #ifdef __OCPN__ANDROID__
     m_bcompact = true;
@@ -553,36 +552,32 @@ void RouteProp::OnRoutePropRightClick( wxListEvent &event )
 {
     wxMenu menu;
 
-    if( m_pRoute->m_bIsTrack ) {
-        // No track specific items so far.
-    } else {
-        if( ! m_pRoute->m_bIsInLayer ) {
+    if( ! m_pRoute->m_bIsInLayer ) {
             
-            #ifdef __WXQT__    
-            wxFont *pf = OCPNGetFont(_T("Menu"), 0);
+#ifdef __OCPN_ANDROID__    
+        wxFont *pf = OCPNGetFont(_T("Menu"), 0);
             
-            // add stuff
-            wxMenuItem *editItem = new wxMenuItem(&menu, ID_RCLK_MENU_EDIT_WP, _("Waypoint Properties..."));
-            editItem->SetFont(*pf);
-            menu.Append(editItem);
+        // add stuff
+        wxMenuItem *editItem = new wxMenuItem(&menu, ID_RCLK_MENU_EDIT_WP, _("Waypoint Properties") + _T("..."));
+        editItem->SetFont(*pf);
+        menu.Append(editItem);
+        
+        wxMenuItem *delItem = new wxMenuItem(&menu, ID_RCLK_MENU_DELETE, _("Remove Selected"));
+        delItem->SetFont(*pf);
+        menu.Append(delItem);
+        
+        
+#else    
             
-            wxMenuItem *delItem = new wxMenuItem(&menu, ID_RCLK_MENU_DELETE, _("Remove Selected"));
-            delItem->SetFont(*pf);
-            menu.Append(delItem);
+        wxMenuItem* editItem = menu.Append( ID_RCLK_MENU_EDIT_WP, _("&Waypoint Properties...") );
+        
+        wxMenuItem* delItem = menu.Append( ID_RCLK_MENU_DELETE, _("&Remove Selected") );
+        
+#endif
             
-           
-            #else    
-            
-            wxMenuItem* editItem = menu.Append( ID_RCLK_MENU_EDIT_WP, _("&Waypoint Properties...") );
-
-            wxMenuItem* delItem = menu.Append( ID_RCLK_MENU_DELETE, _("&Remove Selected") );
-            
-            #endif
-            
-            editItem->Enable( m_wpList->GetSelectedItemCount() == 1 );
-            delItem->Enable( m_wpList->GetSelectedItemCount() > 0 && m_wpList->GetItemCount() > 2 );
-            
-        }
+        editItem->Enable( m_wpList->GetSelectedItemCount() == 1 );
+        delItem->Enable( m_wpList->GetSelectedItemCount() > 0 && m_wpList->GetItemCount() > 2 );
+        
     }
 
     #ifndef __WXQT__    
@@ -599,51 +594,33 @@ void RouteProp::OnRoutepropSplitClick( wxCommandEvent& event )
     if( m_pRoute->m_bIsInLayer ) return;
 
     if( ( m_nSelected > 1 ) && ( m_nSelected < m_pRoute->GetnPoints() ) ) {
-        if( m_pRoute->m_bIsTrack ) {
-            m_pHead = new Track();
-            m_pTail = new Track();
-            m_pHead->CloneTrack( m_pRoute, 1, m_nSelected, _("_A") );
-            m_pTail->CloneTrack( m_pRoute, m_nSelected, m_pRoute->GetnPoints(), _("_B") );
-        } else {
-            m_pHead = new Route();
-            m_pTail = new Route();
-            m_pHead->CloneRoute( m_pRoute, 1, m_nSelected, _("_A") );
-            m_pTail->CloneRoute( m_pRoute, m_nSelected, m_pRoute->GetnPoints(), _("_B") );
-        }
+        m_pHead = new Route();
+        m_pTail = new Route();
+        m_pHead->CloneRoute( m_pRoute, 1, m_nSelected, _("_A") );
+        m_pTail->CloneRoute( m_pRoute, m_nSelected, m_pRoute->GetnPoints(), _("_B") );
         pRouteList->Append( m_pHead );
-        pConfig->AddNewRoute( m_pHead, -1 );
+        pConfig->AddNewRoute( m_pHead );
         m_pHead->RebuildGUIDList();
 
         pRouteList->Append( m_pTail );
-        pConfig->AddNewRoute( m_pTail, -1 );
+        pConfig->AddNewRoute( m_pTail );
         m_pTail->RebuildGUIDList();
 
         pConfig->DeleteConfigRoute( m_pRoute );
 
-        if( !m_pTail->m_bIsTrack ) {
-            pSelect->DeleteAllSelectableRoutePoints( m_pRoute );
-            pSelect->DeleteAllSelectableRouteSegments( m_pRoute );
-            g_pRouteMan->DeleteRoute( m_pRoute );
-            pSelect->AddAllSelectableRouteSegments( m_pTail );
-            pSelect->AddAllSelectableRoutePoints( m_pTail );
-            pSelect->AddAllSelectableRouteSegments( m_pHead );
-            pSelect->AddAllSelectableRoutePoints( m_pHead );
-        } else {
-            pSelect->DeleteAllSelectableTrackSegments( m_pRoute );
-            m_pRoute->ClearHighlights();
-            g_pRouteMan->DeleteTrack( m_pRoute );
-            pSelect->AddAllSelectableTrackSegments( m_pTail );
-            pSelect->AddAllSelectableTrackSegments( m_pHead );
-        }
-
+        pSelect->DeleteAllSelectableRoutePoints( m_pRoute );
+        pSelect->DeleteAllSelectableRouteSegments( m_pRoute );
+        g_pRouteMan->DeleteRoute( m_pRoute );
+        pSelect->AddAllSelectableRouteSegments( m_pTail );
+        pSelect->AddAllSelectableRoutePoints( m_pTail );
+        pSelect->AddAllSelectableRouteSegments( m_pHead );
+        pSelect->AddAllSelectableRoutePoints( m_pHead );
+        
         SetRouteAndUpdate( m_pTail );
         UpdateProperties();
 
-        if( pRouteManagerDialog && pRouteManagerDialog->IsShown() ) {
-            if( !m_pTail->m_bIsTrack ) pRouteManagerDialog->UpdateRouteListCtrl();
-            else
-                pRouteManagerDialog->UpdateTrkListCtrl();
-        }
+        if( pRouteManagerDialog && pRouteManagerDialog->IsShown() )
+            pRouteManagerDialog->UpdateRouteListCtrl();
     }
 }
 
@@ -651,34 +628,25 @@ void RouteProp::OnRoutepropSplitClick( wxCommandEvent& event )
 // slot on pressed button "Print Route" with selection of the route properties to print
 void RouteProp::OnRoutepropPrintClick( wxCommandEvent& event )
 {
-
-  if (pRoutePrintSelection == NULL)
-    pRoutePrintSelection = new RoutePrintSelection( GetParent(), m_pRoute );
-
-  if( !pRoutePrintSelection->IsShown() ) 
-      pRoutePrintSelection->ShowModal();
-
-  delete pRoutePrintSelection;
-  pRoutePrintSelection=NULL;
+    RoutePrintSelection dlg( GetParent(), m_pRoute );
+    dlg.ShowModal();
 }
 
 void RouteProp::OnRoutepropExtendClick( wxCommandEvent& event )
 {
     m_ExtendButton->Enable( false );
 
-    if( !m_pRoute->m_bIsTrack ) {
-        if( IsThisRouteExtendable() ) {
-            int fm = m_pExtendRoute->GetIndexOf( m_pExtendPoint ) + 1;
-            int to = m_pExtendRoute->GetnPoints();
-            if( fm <= to ) {
-                pSelect->DeleteAllSelectableRouteSegments( m_pRoute );
-                m_pRoute->CloneRoute( m_pExtendRoute, fm, to, _("_plus") );
-                pSelect->AddAllSelectableRouteSegments( m_pRoute );
-                SetRouteAndUpdate( m_pRoute );
-                UpdateProperties();
-            }
+    if( IsThisRouteExtendable() ) {
+        int fm = m_pExtendRoute->GetIndexOf( m_pExtendPoint ) + 1;
+        int to = m_pExtendRoute->GetnPoints();
+        if( fm <= to ) {
+            pSelect->DeleteAllSelectableRouteSegments( m_pRoute );
+            m_pRoute->CloneRoute( m_pExtendRoute, fm, to, _("_plus") );
+            pSelect->AddAllSelectableRouteSegments( m_pRoute );
+            SetRouteAndUpdate( m_pRoute );
+            UpdateProperties();
         }
-    } // end route extend
+    }
 }
 
 void RouteProp::OnRoutepropCopyTxtClick( wxCommandEvent& event )
@@ -691,10 +659,10 @@ void RouteProp::OnRoutepropCopyTxtClick( wxCommandEvent& event )
             << _("Name") << tab << m_pRoute->m_RouteNameString << eol
             << _("Depart From") << tab << m_pRoute->m_RouteStartString << eol
             << _("Destination") << tab << m_pRoute->m_RouteEndString << eol
-            << _("Total Distance") << tab << m_TotalDistCtl->GetValue() << eol
+            << _("Total distance") << tab << m_TotalDistCtl->GetValue() << eol
             << _("Speed (Kts)") << tab << m_PlanSpeedCtl->GetValue() << eol
-            << _("Departure Time (m/d/y h:m)") << tab << m_StartTimeCtl->GetValue() << eol
-            << _("Time Enroute") << tab << m_TimeEnrouteCtl->GetValue() << eol << eol;
+            << _("Departure Time") + _T(" ") + _("(m/d/y h:m)") << tab << m_StartTimeCtl->GetValue() << eol
+            << _("Time enroute") << tab << m_TimeEnrouteCtl->GetValue() << eol << eol;
 
     int noCols;
     int noRows;
@@ -735,58 +703,56 @@ bool RouteProp::IsThisRouteExtendable()
     m_pExtendPoint = NULL;
     if( m_pRoute->m_bRtIsActive || m_pRoute->m_bIsInLayer ) return false;
 
-    if( !m_pRoute->m_bIsTrack ) {
-        RoutePoint *pLastPoint = m_pRoute->GetLastPoint();
-        wxArrayPtrVoid *pEditRouteArray;
+    RoutePoint *pLastPoint = m_pRoute->GetLastPoint();
+    wxArrayPtrVoid *pEditRouteArray;
 
-        pEditRouteArray = g_pRouteMan->GetRouteArrayContaining( pLastPoint );
-        // remove invisible & own routes from choices
-        int i;
-        for( i = pEditRouteArray->GetCount(); i > 0; i-- ) {
-            Route *p = (Route *) pEditRouteArray->Item( i - 1 );
-            if( !p->IsVisible() || ( p->m_GUID == m_pRoute->m_GUID ) ) pEditRouteArray->RemoveAt(
-                    i - 1 );
-        }
-        if( pEditRouteArray->GetCount() == 1 ) m_pExtendPoint = pLastPoint;
-        else
-            if( pEditRouteArray->GetCount() == 0 ) {
+    pEditRouteArray = g_pRouteMan->GetRouteArrayContaining( pLastPoint );
+    // remove invisible & own routes from choices
+    int i;
+    for( i = pEditRouteArray->GetCount(); i > 0; i-- ) {
+        Route *p = (Route *) pEditRouteArray->Item( i - 1 );
+        if( !p->IsVisible() || ( p->m_GUID == m_pRoute->m_GUID ) ) pEditRouteArray->RemoveAt(
+            i - 1 );
+    }
+    if( pEditRouteArray->GetCount() == 1 ) m_pExtendPoint = pLastPoint;
+    else
+        if( pEditRouteArray->GetCount() == 0 ) {
 
-                //int nearby_radius_meters = 8./cc1->GetCanvasScaleFactor(); // "nearby" means 8 pixels away
-                int nearby_radius_meters = (int) ( 8. / cc1->GetCanvasTrueScale() );
-                double rlat = pLastPoint->m_lat;
-                double rlon = pLastPoint->m_lon;
+            //int nearby_radius_meters = 8./cc1->GetCanvasScaleFactor(); // "nearby" means 8 pixels away
+            int nearby_radius_meters = (int) ( 8. / cc1->GetCanvasTrueScale() );
+            double rlat = pLastPoint->m_lat;
+            double rlon = pLastPoint->m_lon;
 
-                m_pExtendPoint = pWayPointMan->GetOtherNearbyWaypoint( rlat, rlon,
-                        nearby_radius_meters, pLastPoint->m_GUID );
-                if( m_pExtendPoint && !m_pExtendPoint->m_bIsInTrack ) {
-                    wxArrayPtrVoid *pCloseWPRouteArray = g_pRouteMan->GetRouteArrayContaining(
-                            m_pExtendPoint );
-                    if( pCloseWPRouteArray ) {
-                        pEditRouteArray = pCloseWPRouteArray;
+            m_pExtendPoint = pWayPointMan->GetOtherNearbyWaypoint( rlat, rlon,
+                                                                   nearby_radius_meters, pLastPoint->m_GUID );
+            if( m_pExtendPoint ) {
+                wxArrayPtrVoid *pCloseWPRouteArray = g_pRouteMan->GetRouteArrayContaining(
+                    m_pExtendPoint );
+                if( pCloseWPRouteArray ) {
+                    pEditRouteArray = pCloseWPRouteArray;
 
-                        // remove invisible & own routes from choices
-                        for( i = pEditRouteArray->GetCount(); i > 0; i-- ) {
-                            Route *p = (Route *) pEditRouteArray->Item( i - 1 );
-                            if( !p->IsVisible() || ( p->m_GUID == m_pRoute->m_GUID ) ) pEditRouteArray->RemoveAt(
-                                    i - 1 );
-                        }
+                    // remove invisible & own routes from choices
+                    for( i = pEditRouteArray->GetCount(); i > 0; i-- ) {
+                        Route *p = (Route *) pEditRouteArray->Item( i - 1 );
+                        if( !p->IsVisible() || ( p->m_GUID == m_pRoute->m_GUID ) ) pEditRouteArray->RemoveAt(
+                            i - 1 );
                     }
                 }
             }
-
-        if( pEditRouteArray->GetCount() == 1 ) {
-            Route *p = (Route *) pEditRouteArray->Item( 0 );
-            int fm = p->GetIndexOf( m_pExtendPoint ) + 1;
-            int to = p->GetnPoints();
-            if( fm <= to ) {
-                m_pExtendRoute = p;
-                delete pEditRouteArray;
-                return true;
-            }
         }
-        delete pEditRouteArray;
 
-    } // end route extend
+    if( pEditRouteArray->GetCount() == 1 ) {
+        Route *p = (Route *) pEditRouteArray->Item( 0 );
+        int fm = p->GetIndexOf( m_pExtendPoint ) + 1;
+        int to = p->GetnPoints();
+        if( fm <= to ) {
+            m_pExtendRoute = p;
+            delete pEditRouteArray;
+            return true;
+        }
+    }
+    delete pEditRouteArray;
+
     return false;
 }
 
@@ -805,8 +771,6 @@ RouteProp::~RouteProp()
 
     delete m_wpList;
 
-    // delete global print route selection dialog
-    delete pRoutePrintSelection;
     instanceFlag = false;
 }
 
@@ -885,7 +849,7 @@ void RouteProp::CreateControlsCompact()
     itemBoxSizer2->Add( itemFlexGridSizer6a, 0, wxEXPAND | wxALIGN_LEFT | wxALL, 5 );
 
     wxStaticText* itemStaticText11 = new wxStaticText( itemDialog1, wxID_STATIC,
-            _("Total Distance"), wxDefaultPosition, wxDefaultSize, 0 );
+            _("Total distance"), wxDefaultPosition, wxDefaultSize, 0 );
     itemFlexGridSizer6a->Add( itemStaticText11, 0,
             wxALIGN_LEFT | wxALIGN_CENTER_VERTICAL | wxLEFT | wxRIGHT | wxTOP,
             5 );
@@ -898,7 +862,7 @@ void RouteProp::CreateControlsCompact()
     
     
     
-    m_PlanSpeedLabel = new wxStaticText( itemDialog1, wxID_STATIC, _("Plan Speed"),
+    m_PlanSpeedLabel = new wxStaticText( itemDialog1, wxID_STATIC, _("Plan speed"),
             wxDefaultPosition, wxDefaultSize, 0 );
     itemFlexGridSizer6a->Add( m_PlanSpeedLabel, 0,
             wxALIGN_LEFT | wxALIGN_CENTER_VERTICAL | wxLEFT | wxRIGHT | wxTOP,
@@ -912,7 +876,7 @@ void RouteProp::CreateControlsCompact()
     
     
     
-    wxStaticText* itemStaticText12a = new wxStaticText( itemDialog1, wxID_STATIC, _("Time Enroute"),
+    wxStaticText* itemStaticText12a = new wxStaticText( itemDialog1, wxID_STATIC, _("Time enroute"),
             wxDefaultPosition, wxDefaultSize, 0 );
     itemFlexGridSizer6a->Add( itemStaticText12a, 0,
             wxALIGN_LEFT | wxALIGN_CENTER_VERTICAL | wxLEFT | wxRIGHT | wxTOP,
@@ -937,7 +901,7 @@ void RouteProp::CreateControlsCompact()
 
     wxString pDispTimeZone[] = { _("UTC"), _("Local @ PC"), _("LMT @ Location") };
     
-    wxStaticText* itemStaticText12b = new wxStaticText( itemDialog1, wxID_STATIC, _("Times shown as"),
+    wxStaticText* itemStaticText12b = new wxStaticText( itemDialog1, wxID_STATIC, _("Time shown as"),
                                                                                     wxDefaultPosition, wxDefaultSize, 0 );
     itemBoxSizer2->Add( itemStaticText12b, 0, wxEXPAND | wxALL, 5 );
     
@@ -955,7 +919,7 @@ void RouteProp::CreateControlsCompact()
     wxFlexGridSizer* itemFlexGridSizer6b = new wxFlexGridSizer( 3, 2, 0, 0 );
     itemBoxSizer2->Add( itemFlexGridSizer6b, 0, wxEXPAND | wxALIGN_LEFT | wxALL, 5 );
     
-    m_staticText1 = new wxStaticText( itemDialog1, wxID_ANY, _("Color:"), wxDefaultPosition, wxDefaultSize,
+    m_staticText1 = new wxStaticText( itemDialog1, wxID_ANY, _("Color") + _T(":"), wxDefaultPosition, wxDefaultSize,
             0 );
     itemFlexGridSizer6b->Add( m_staticText1, 0, wxALIGN_CENTER_VERTICAL | wxALL, 5 );
 
@@ -969,7 +933,7 @@ void RouteProp::CreateControlsCompact()
     m_chColor->SetSelection( 0 );
     itemFlexGridSizer6b->Add( m_chColor, 0,  wxALIGN_CENTER_VERTICAL | wxALL, 5 );
 
-    wxStaticText *staticTextStyle = new wxStaticText( itemDialog1, wxID_ANY, _("Style:"), wxDefaultPosition, wxDefaultSize,
+    wxStaticText *staticTextStyle = new wxStaticText( itemDialog1, wxID_ANY, _("Style") + _T(":"), wxDefaultPosition, wxDefaultSize,
             0 );
     itemFlexGridSizer6b->Add( staticTextStyle, 0, wxALIGN_CENTER_VERTICAL | wxALL, 5 );
 
@@ -987,7 +951,7 @@ void RouteProp::CreateControlsCompact()
 #endif    
     
     
-    m_staticText2 = new wxStaticText( itemDialog1, wxID_ANY, _("Width:"), wxDefaultPosition, wxDefaultSize,
+    m_staticText2 = new wxStaticText( itemDialog1, wxID_ANY, _("Width") + _T(":"), wxDefaultPosition, wxDefaultSize,
             0 );
     itemFlexGridSizer6b->Add( m_staticText2, 0, wxALIGN_CENTER_VERTICAL | wxALL, 5 );
 
@@ -1117,27 +1081,29 @@ void RouteProp::CreateControlsCompact()
     
     int char_size = GetCharWidth();
 
-    m_wpList->InsertColumn( 0, _("Leg"), wxLIST_FORMAT_LEFT, 10 );
-    m_wpList->InsertColumn( 1, _("To Waypoint"), wxLIST_FORMAT_LEFT, char_size * 14 );
-    m_wpList->InsertColumn( 2, _("Distance"), wxLIST_FORMAT_RIGHT, char_size * 9 );
+#define C(COL) (cols[COL] = c++)
+    int c = 0;
 
+    m_wpList->InsertColumn( C(LEG), _("Leg"), wxLIST_FORMAT_LEFT, 10 );
+    m_wpList->InsertColumn( C(TO_WAYPOINT), _("To Waypoint"), wxLIST_FORMAT_LEFT, char_size * 14 );
+    m_wpList->InsertColumn( C(DISTANCE), _("Distance"), wxLIST_FORMAT_RIGHT, char_size * 9 );
+
+    if(g_bShowTrue)
+        m_wpList->InsertColumn( C(BEARING), _("Bearing"), wxLIST_FORMAT_LEFT, char_size * 10 );
     if(g_bShowMag)
-        m_wpList->InsertColumn( 3, _("Bearing (M)"), wxLIST_FORMAT_LEFT, char_size * 10 );
-    else
-        m_wpList->InsertColumn( 3, _("Bearing"), wxLIST_FORMAT_LEFT, char_size * 10 );
+        m_wpList->InsertColumn( C(BEARING_MAGNETIC), _("Bearing (M)"), wxLIST_FORMAT_LEFT, char_size * 10 );
 
-    m_wpList->InsertColumn( 4, _("Latitude"), wxLIST_FORMAT_LEFT, char_size * 11 );
-    m_wpList->InsertColumn( 5, _("Longitude"), wxLIST_FORMAT_LEFT, char_size * 11 );
-    m_wpList->InsertColumn( 6, _("ETE/ETD"), wxLIST_FORMAT_LEFT, char_size * 15 );
-    m_wpList->InsertColumn( 7, _("Speed"), wxLIST_FORMAT_CENTER, char_size * 9 );
-    m_wpList->InsertColumn( 8, _("Next tide event"), wxLIST_FORMAT_LEFT, char_size * 11 );
-    m_wpList->InsertColumn( 9, _("Description"), wxLIST_FORMAT_LEFT, char_size * 11 );
+    m_wpList->InsertColumn( C(LATITUDE), _("Latitude"), wxLIST_FORMAT_LEFT, char_size * 11 );
+    m_wpList->InsertColumn( C(LONGITUDE), _("Longitude"), wxLIST_FORMAT_LEFT, char_size * 11 );
+    m_wpList->InsertColumn( C(ETE_ETD), _("ETE/ETD"), wxLIST_FORMAT_LEFT, char_size * 15 );
+    m_wpList->InsertColumn( C(SPEED), _("Speed"), wxLIST_FORMAT_CENTER, char_size * 9 );
+    m_wpList->InsertColumn( C(NEXT_TIDE), _("Next tide event"), wxLIST_FORMAT_LEFT, char_size * 11 );
+    m_wpList->InsertColumn( C(DESCRIPTION), _("Description"), wxLIST_FORMAT_LEFT, char_size * 11 );
+
+    if(g_bShowTrue)
+        m_wpList->InsertColumn( C(COURSE), _("Course"), wxLIST_FORMAT_LEFT, char_size * 10 );
     if(g_bShowMag)
-        m_wpList->InsertColumn( 10, _("Course (M)"), wxLIST_FORMAT_LEFT, char_size * 10 );
-    else
-        m_wpList->InsertColumn( 10, _("Course"), wxLIST_FORMAT_LEFT, char_size * 10 );
-
-    
+        m_wpList->InsertColumn( C(COURSE_MAGNETIC), _("Course (M)"), wxLIST_FORMAT_LEFT, char_size * 10 );
    
     //Set the maximum size of the entire  dialog
     int width, height;
@@ -1239,24 +1205,24 @@ void RouteProp::CreateControls()
     itemStaticBoxSizer3->Add( itemFlexGridSizer6a, 1, wxALIGN_LEFT | wxALL, 5 );
     
     wxStaticText* itemStaticText11 = new wxStaticText( itemDialog1, wxID_STATIC,
-                                                       _("Total Distance"), wxDefaultPosition, wxDefaultSize, 0 );
+                                                       _("Total distance"), wxDefaultPosition, wxDefaultSize, 0 );
     itemFlexGridSizer6a->Add( itemStaticText11, 0,
                               wxALIGN_LEFT | wxALIGN_CENTER_VERTICAL | wxLEFT | wxRIGHT | wxTOP,
                               5 );
     
-    m_PlanSpeedLabel = new wxStaticText( itemDialog1, wxID_STATIC, _("Plan Speed"),
+    m_PlanSpeedLabel = new wxStaticText( itemDialog1, wxID_STATIC, _("Plan speed"),
                                          wxDefaultPosition, wxDefaultSize, 0 );
     itemFlexGridSizer6a->Add( m_PlanSpeedLabel, 0,
                               wxALIGN_LEFT | wxALIGN_CENTER_VERTICAL | wxLEFT | wxRIGHT | wxTOP,
                               5 );
     
-    wxStaticText* itemStaticText12a = new wxStaticText( itemDialog1, wxID_STATIC, _("Time Enroute"),
+    wxStaticText* itemStaticText12a = new wxStaticText( itemDialog1, wxID_STATIC, _("Time enroute"),
                                                         wxDefaultPosition, wxDefaultSize, 0 );
     itemFlexGridSizer6a->Add( itemStaticText12a, 0,
                               wxALIGN_LEFT | wxALIGN_CENTER_VERTICAL | wxLEFT | wxRIGHT | wxTOP,
                               5 );
     
-    m_StartTimeLabel = new wxStaticText( itemDialog1, wxID_STATIC, _("Departure Time (m/d/y h:m)"),
+    m_StartTimeLabel = new wxStaticText( itemDialog1, wxID_STATIC, _("Departure Time") + _T(" ") + _("(m/d/y h:m)"),
                                          wxDefaultPosition, wxDefaultSize, 0 );
     itemFlexGridSizer6a->Add( m_StartTimeLabel, 0,
                               wxALIGN_LEFT | wxALIGN_CENTER_VERTICAL | wxLEFT | wxRIGHT | wxTOP,
@@ -1286,7 +1252,7 @@ void RouteProp::CreateControls()
     wxBoxSizer* bSizer2;
     bSizer2 = new wxBoxSizer( wxHORIZONTAL );
     
-    wxStaticBox* itemStaticBoxTZ = new wxStaticBox( itemDialog1, wxID_ANY,  _("Times shown as") );
+    wxStaticBox* itemStaticBoxTZ = new wxStaticBox( itemDialog1, wxID_ANY,  _("Time shown as") );
     wxStaticBoxSizer* itemStaticBoxSizerTZ = new wxStaticBoxSizer( itemStaticBoxTZ, wxHORIZONTAL );
     bSizer2->Add( itemStaticBoxSizerTZ, 0, wxEXPAND | wxALL, 5 );
     
@@ -1300,7 +1266,7 @@ void RouteProp::CreateControls()
     m_prb_tzLMT = new wxRadioButton(itemDialog1, ID_TIMEZONESEL_LMT, _("LMT @ Location"));
     itemStaticBoxSizerTZ->Add( m_prb_tzLMT, 0, wxALIGN_LEFT | wxALIGN_CENTER_VERTICAL | wxLEFT | wxRIGHT | wxBOTTOM,5 );
     
-    m_staticText1 = new wxStaticText( itemDialog1, wxID_ANY, _("Color:"), wxDefaultPosition, wxDefaultSize,
+    m_staticText1 = new wxStaticText( itemDialog1, wxID_ANY, _("Color") + _T(":"), wxDefaultPosition, wxDefaultSize,
                                       0 );
     //m_staticText1->Wrap( -1 );
     bSizer2->Add( m_staticText1, 0, wxALIGN_CENTER_VERTICAL | wxALL, 5 );
@@ -1315,7 +1281,7 @@ void RouteProp::CreateControls()
       m_chColor->SetSelection( 0 );
       bSizer2->Add( m_chColor, 0, wxALIGN_CENTER_VERTICAL | wxALL, 5 );
       
-      wxStaticText *staticTextStyle = new wxStaticText( itemDialog1, wxID_ANY, _("Style:"), wxDefaultPosition, wxDefaultSize,
+      wxStaticText *staticTextStyle = new wxStaticText( itemDialog1, wxID_ANY, _("Style") + _T(":"), wxDefaultPosition, wxDefaultSize,
         0 );
       bSizer2->Add( staticTextStyle, 0, wxALIGN_CENTER_VERTICAL | wxALL, 5 );
       
@@ -1333,7 +1299,7 @@ void RouteProp::CreateControls()
       #endif    
       
       
-      m_staticText2 = new wxStaticText( itemDialog1, wxID_ANY, _("Width:"), wxDefaultPosition, wxDefaultSize,
+      m_staticText2 = new wxStaticText( itemDialog1, wxID_ANY, _("Width") + _T(":"), wxDefaultPosition, wxDefaultSize,
         0 );
       //m_staticText2->Wrap( -1 );
       bSizer2->Add( m_staticText2, 0, wxALIGN_CENTER_VERTICAL | wxALL, 5 );
@@ -1409,27 +1375,29 @@ void RouteProp::CreateControls()
       
       
       int char_size = GetCharWidth();
-      
-      m_wpList->InsertColumn( 0, _("Leg"), wxLIST_FORMAT_LEFT, char_size * 6 );
-      m_wpList->InsertColumn( 1, _("To Waypoint"), wxLIST_FORMAT_LEFT, char_size * 14 );
-      m_wpList->InsertColumn( 2, _("Distance"), wxLIST_FORMAT_RIGHT, char_size * 9 );
-      
+
+#define C(COL) (cols[COL] = c++)
+      int c = 0;
+      m_wpList->InsertColumn( C(LEG), _("Leg"), wxLIST_FORMAT_LEFT, char_size * 6 );
+      m_wpList->InsertColumn( C(TO_WAYPOINT), _("To Waypoint"), wxLIST_FORMAT_LEFT, char_size * 14 );
+      m_wpList->InsertColumn( C(DISTANCE), _("Distance"), wxLIST_FORMAT_RIGHT, char_size * 9 );
+
+      if(g_bShowTrue)
+          m_wpList->InsertColumn( C(BEARING), _("Bearing"), wxLIST_FORMAT_LEFT, char_size * 10 );
       if(g_bShowMag)
-          m_wpList->InsertColumn( 3, _("Bearing (M)"), wxLIST_FORMAT_LEFT, char_size * 10 );
-      else
-          m_wpList->InsertColumn( 3, _("Bearing"), wxLIST_FORMAT_LEFT, char_size * 10 );
+          m_wpList->InsertColumn( C(BEARING_MAGNETIC), _("Bearing (M)"), wxLIST_FORMAT_LEFT, char_size * 10 );
       
-      m_wpList->InsertColumn( 4, _("Latitude"), wxLIST_FORMAT_LEFT, char_size * 11 );
-      m_wpList->InsertColumn( 5, _("Longitude"), wxLIST_FORMAT_LEFT, char_size * 11 );
-      m_wpList->InsertColumn( 6, _("ETE/ETD"), wxLIST_FORMAT_LEFT, char_size * 15 );
-      m_wpList->InsertColumn( 7, _("Speed"), wxLIST_FORMAT_CENTER, char_size * 9 );
-      m_wpList->InsertColumn( 8, _("Next tide event"), wxLIST_FORMAT_LEFT, char_size * 11 );
-      m_wpList->InsertColumn( 9, _("Description"), wxLIST_FORMAT_LEFT, char_size * 11 );
+      m_wpList->InsertColumn( C(LATITUDE), _("Latitude"), wxLIST_FORMAT_LEFT, char_size * 11 );
+      m_wpList->InsertColumn( C(LONGITUDE), _("Longitude"), wxLIST_FORMAT_LEFT, char_size * 11 );
+      m_wpList->InsertColumn( C(ETE_ETD), _("ETE/ETD"), wxLIST_FORMAT_LEFT, char_size * 15 );
+      m_wpList->InsertColumn( C(SPEED), _("Speed"), wxLIST_FORMAT_CENTER, char_size * 9 );
+      m_wpList->InsertColumn( C(NEXT_TIDE), _("Next tide event"), wxLIST_FORMAT_LEFT, char_size * 11 );
+      m_wpList->InsertColumn( C(DESCRIPTION), _("Description"), wxLIST_FORMAT_LEFT, char_size * 11 );
+
+      if(g_bShowTrue)
+          m_wpList->InsertColumn( C(COURSE), _("Course"), wxLIST_FORMAT_LEFT, char_size * 10 );
       if(g_bShowMag)
-          m_wpList->InsertColumn( 10, _("Course (M)"), wxLIST_FORMAT_LEFT, char_size * 10 );
-      else
-          m_wpList->InsertColumn( 10, _("Course"), wxLIST_FORMAT_LEFT, char_size * 10 );
-      
+          m_wpList->InsertColumn( C(COURSE_MAGNETIC), _("Course (M)"), wxLIST_FORMAT_LEFT, char_size * 10 );
       
       //Set the maximum size of the entire  dialog
       int width, height;
@@ -1494,14 +1462,17 @@ void RouteProp::OnRoutepropListClick( wxListEvent& event )
         if( prp ) {
             prp->m_bPtIsSelected = true;                // highlight the routepoint
 
-            if( !( m_pRoute->m_bIsInLayer ) && !( m_pRoute == g_pActiveTrack )
-                    && !( m_pRoute->m_bRtIsActive ) ) {
+            if( !m_pRoute->m_bIsInLayer && !m_pRoute->m_bRtIsActive ) {
                 m_nSelected = selected_no + 1;
                 m_SplitButton->Enable( true );
             }
 
             gFrame->JumpToPosition( prp->m_lat, prp->m_lon, cc1->GetVPScale() );
 
+#ifdef __WXMSW__            
+            if (m_wpList)
+                m_wpList->SetFocus();
+#endif            
         }
     }
 }
@@ -1624,18 +1595,10 @@ void RouteProp::SetRouteAndUpdate( Route *pR, bool only_points )
 
         // Reorganize dialog for route or track display
         if( m_pRoute ) {
-            if( m_pRoute->m_bIsTrack ) {
-                m_PlanSpeedLabel->SetLabel( _("Avg. speed") );
-                m_PlanSpeedCtl->SetEditable( false );
-                m_ExtendButton->SetLabel( _("Extend Track") );
-                m_SplitButton->SetLabel( _("Split Track") );
-
-            } else {
-                m_PlanSpeedLabel->SetLabel( _("Plan speed") );
-                m_PlanSpeedCtl->SetEditable( true );
-                m_ExtendButton->SetLabel( _("Extend Route") );
-                m_SplitButton->SetLabel( _("Split Route") );
-            }
+            m_PlanSpeedLabel->SetLabel( _("Plan speed") );
+            m_PlanSpeedCtl->SetEditable( true );
+            m_ExtendButton->SetLabel( _("Extend Route") );
+            m_SplitButton->SetLabel( _("Split Route") );
 
             //    Fill in some top pane properties from the Route member elements
             m_RouteNameCtl->SetValue( m_pRoute->m_RouteNameString );
@@ -1688,36 +1651,31 @@ void RouteProp::InitializeList()
 {
     if( NULL == m_pRoute ) return;
 
-    if( !m_pRoute->m_bIsTrack ) {
-        m_pRoute->UpdateSegmentDistances( m_planspeed );           // to fix ETD properties
-
-        //  Iterate on Route Points, inserting blank fields starting with index 0
-        wxRoutePointListNode *pnode = m_pRoute->pRoutePointList->GetFirst();
-        int in = 0;
-        while( pnode ) {
+    m_pRoute->UpdateSegmentDistances( m_planspeed );           // to fix ETD properties
+    //  Iterate on Route Points, inserting blank fields starting with index 0
+    wxRoutePointListNode *pnode = m_pRoute->pRoutePointList->GetFirst();
+    int in = 0;
+    while( pnode ) {
+        m_wpList->InsertItem( in, _T(""), -1 );
+        m_wpList->SetItemPtrData( in, (wxUIntPtr)pnode->GetData() );
+        in++;
+        if( pnode->GetData()->m_seg_etd.IsValid() ) {
             m_wpList->InsertItem( in, _T(""), -1 );
-            m_wpList->SetItemPtrData( in, (wxUIntPtr)pnode->GetData() );
             in++;
-            if( pnode->GetData()->m_seg_etd.IsValid() ) {
-                m_wpList->InsertItem( in, _T(""), -1 );
-                in++;
-            }
-            pnode = pnode->GetNext();
         }
-
-        //      Update the plan speed and route start time controls
-        wxString s;
-        s.Printf( _T("%5.2f"), m_planspeed );
-        m_PlanSpeedCtl->SetValue( s );
-
-        if( m_starttime.IsValid() ) {
-            wxString s = ts2s( m_starttime, m_tz_selection, (int) gStart_LMT_Offset, INPUT_FORMAT );
-            m_StartTimeCtl->SetValue( s );
-        } else
-            m_StartTimeCtl->Clear();
+        pnode = pnode->GetNext();
     }
 
-    
+    //      Update the plan speed and route start time controls
+    wxString s;
+    s.Printf( _T("%5.2f"), m_planspeed );
+    m_PlanSpeedCtl->SetValue( s );
+
+    if( m_starttime.IsValid() ) {
+        wxString s = ts2s( m_starttime, m_tz_selection, (int) gStart_LMT_Offset, INPUT_FORMAT );
+        m_StartTimeCtl->SetValue( s );
+    } else
+        m_StartTimeCtl->Clear();
 }
 
 bool RouteProp::UpdateProperties()
@@ -1734,6 +1692,7 @@ bool RouteProp::UpdateProperties()
     m_SplitButton->Enable( false );
     m_ExtendButton->Enable( false );
 
+#if 0
     if( m_pRoute->m_bIsTrack ) {
         m_pRoute->UpdateSegmentDistances();           // get segment and total distance
         // but ignore leg speed calcs
@@ -1790,6 +1749,7 @@ bool RouteProp::UpdateProperties()
         m_TimeEnrouteCtl->SetValue( time_form );
 
     } else        // Route
+#endif        
     {
         double brg;
         double join_distance = 0.;
@@ -1799,7 +1759,7 @@ bool RouteProp::UpdateProperties()
 
         //    Update the "tides event" column header
         wxListItem column_info;
-        if( m_wpList->GetColumn( 8, column_info ) ) {
+        if( m_wpList->GetColumn( cols[NEXT_TIDE], column_info ) ) {
             wxString c = _("Next tide event");
             if( gpIDX && m_starttime.IsValid() ) {
                 c = _T("@~~");
@@ -1809,16 +1769,16 @@ bool RouteProp::UpdateProperties()
 
             }
             column_info.SetText( c );
-            m_wpList->SetColumn( 8, column_info );
+            m_wpList->SetColumn( cols[NEXT_TIDE], column_info );
         }
 
         //Update the "ETE/Timestamp" column header
 
-        if( m_wpList->GetColumn( 6, column_info ) ) {
+        if( m_wpList->GetColumn( cols[ETE_ETD], column_info ) ) {
             if( m_starttime.IsValid() ) column_info.SetText( _("ETA") );
             else
                 column_info.SetText( _("ETE") );
-            m_wpList->SetColumn( 6, column_info );
+            m_wpList->SetColumn( cols[ETE_ETD], column_info );
         }
 
         m_pRoute->UpdateSegmentDistances( m_planspeed );           // get segment and total distance
@@ -1937,7 +1897,7 @@ bool RouteProp::UpdateProperties()
             wxString t;
             t.Printf( _T("%d"), i );
             if( i == 0 ) t = _T("---");
-            if( arrival ) m_wpList->SetItem( item_line_index, 0, t );
+            if( arrival ) m_wpList->SetItem( item_line_index, cols[LEG], t );
 /*
             if( arrival ){
                 wxListItem item;
@@ -1951,9 +1911,9 @@ bool RouteProp::UpdateProperties()
             */
             
             //  Mark Name
-            if( arrival ) m_wpList->SetItem( item_line_index, 1, prp->GetName() );
+            if( arrival ) m_wpList->SetItem( item_line_index, cols[TO_WAYPOINT], prp->GetName() );
         // Store Dewcription
-            if( arrival ) m_wpList->SetItem( item_line_index, 9, prp->GetDescription() );
+            if( arrival ) m_wpList->SetItem( item_line_index, cols[DESCRIPTION], prp->GetDescription() );
 
             //  Distance
             //  Note that Distance/Bearing for Leg 000 is as from current position
@@ -1985,76 +1945,92 @@ bool RouteProp::UpdateProperties()
 
             DistanceBearingMercator( prp->m_lat, prp->m_lon, slat, slon, &brg, &leg_dist );
 
-        // calculation of course at current WayPoint.
-        double course=10, tmp_leg_dist=23;
-        wxRoutePointListNode *next_node = node->GetNext();
-        RoutePoint * _next_prp = (next_node)? next_node->GetData(): NULL;
-        if (_next_prp )
-        {
-        DistanceBearingMercator( _next_prp->m_lat, _next_prp->m_lon, prp->m_lat, prp->m_lon, &course, &tmp_leg_dist );
-        }else
-        {
-          course = 0.0;
-          tmp_leg_dist = 0.0;
-        }
-
-        prp->SetCourse(course); // save the course to the next waypoint for printing.
-        // end of calculation
-
-
-        t.Printf( _T("%6.2f ") + getUsrDistanceUnit(), toUsrDistance( leg_dist ) );
-        if( arrival )
-            m_wpList->SetItem( item_line_index, 2, t );
-        if( !enroute )
-            m_wpList->SetItem( item_line_index, 2, nullify );
-        prp->SetDistance(leg_dist); // save the course to the next waypoint for printing.
-
-            //  Bearing
-        if( g_bShowMag ){
-            double latAverage = (prp->m_lat + slat)/2;
-            double lonAverage = (prp->m_lon + slon)/2;
-            double varBrg = gFrame->GetTrueOrMag( brg, latAverage, lonAverage);
-            
-            t.Printf( _T("%03.0f Deg. M"), varBrg );
-        }
-        else
-            t.Printf( _T("%03.0f Deg. T"), gFrame->GetTrueOrMag( brg ) );
-
-        if( arrival )
-            m_wpList->SetItem( item_line_index, 3, t );
-        if( !enroute )
-            m_wpList->SetItem( item_line_index, 3, nullify );
-
-        // Course (bearing of next )
-        if (_next_prp){
-            if( g_bShowMag ){
-                double next_lat = prp->m_lat;
-                double next_lon = prp->m_lon;
-                if (_next_prp ){
-                    next_lat = _next_prp->m_lat;
-                    next_lon = _next_prp->m_lon;
-                }
-                    
-                double latAverage = (prp->m_lat + next_lat)/2;
-                double lonAverage = (prp->m_lon + next_lon)/2;
-                double varCourse = gFrame->GetTrueOrMag( course, latAverage, lonAverage);
-                
-                t.Printf( _T("%03.0f Deg. M"), varCourse );
+            // calculation of course at current WayPoint.
+            double course=10, tmp_leg_dist=23;
+            wxRoutePointListNode *next_node = node->GetNext();
+            RoutePoint * _next_prp = (next_node)? next_node->GetData(): NULL;
+            if (_next_prp )
+            {
+            DistanceBearingMercator( _next_prp->m_lat, _next_prp->m_lon, prp->m_lat, prp->m_lon, &course, &tmp_leg_dist );
+            }else
+            {
+              course = 0.0;
+              tmp_leg_dist = 0.0;
             }
-            else
-                t.Printf( _T("%03.0f Deg. T"), gFrame->GetTrueOrMag( course ) );
+
+            prp->SetCourse(course); // save the course to the next waypoint for printing.
+            // end of calculation
+
+
+            t.Printf( _T("%6.2f ") + getUsrDistanceUnit(), toUsrDistance( leg_dist ) );
             if( arrival )
-                m_wpList->SetItem( item_line_index, 10, t );
-        }
-        else
-            m_wpList->SetItem( item_line_index, 10, nullify );
+                m_wpList->SetItem( item_line_index, cols[DISTANCE], t );
+            if( !enroute )
+                m_wpList->SetItem( item_line_index, cols[DISTANCE], nullify );
+            prp->SetDistance(leg_dist); // save the course to the next waypoint for printing.
+
+                //  Bearing
+            if( g_bShowTrue ) {
+                if( enroute )
+                    t.Printf( _T("%03.0f Deg. T"), brg );
+                else
+                    t = nullify;
+                if( arrival )
+                    m_wpList->SetItem( item_line_index, cols[BEARING], t );
+            }
+
+            if( g_bShowMag ){
+                if( enroute ) {
+                    double latAverage = (prp->m_lat + slat)/2;
+                    double lonAverage = (prp->m_lon + slon)/2;
+                    double varBrg = gFrame->GetMag( brg, latAverage, lonAverage);
+                
+                    t.Printf( _T("%03.0f Deg. M"), varBrg );
+                } else
+                    t = nullify;
+
+                if( arrival )
+                    m_wpList->SetItem( item_line_index, cols[BEARING_MAGNETIC], t );
+            }
+
+
+
+            // Course (bearing of next )
+            if (_next_prp){
+                if( g_bShowMag ){
+                    if ( arrival ) {
+                        double next_lat = prp->m_lat;
+                        double next_lon = prp->m_lon;
+                        if (_next_prp ){
+                            next_lat = _next_prp->m_lat;
+                            next_lon = _next_prp->m_lon;
+                        }
+
+                        double latAverage = (prp->m_lat + next_lat)/2;
+                        double lonAverage = (prp->m_lon + next_lon)/2;
+                        double varCourse = gFrame->GetMag( course, latAverage, lonAverage);
+
+                        t.Printf( _T("%03.0f Deg. M"), varCourse );
+                        m_wpList->SetItem( item_line_index, cols[COURSE_MAGNETIC], t );
+                    }
+                    else
+                        m_wpList->SetItem( item_line_index, cols[COURSE_MAGNETIC], nullify );
+                }
+                if ( g_bShowTrue ) {
+                    if ( arrival ) {
+                        t.Printf( _T("%03.0f Deg. T"), course );
+                        m_wpList->SetItem( item_line_index, cols[COURSE], t );
+                    } else
+                        m_wpList->SetItem( item_line_index, cols[COURSE], nullify );
+                }
+            }
 
             //  Lat/Lon
-            wxString tlat = toSDMM( 1, prp->m_lat, prp->m_bIsInTrack );  // low precision for routes
-            if( arrival ) m_wpList->SetItem( item_line_index, 4, tlat );
+            wxString tlat = toSDMM( 1, prp->m_lat, false );  // low precision for routes
+            if( arrival ) m_wpList->SetItem( item_line_index, cols[LATITUDE], tlat );
 
-            wxString tlon = toSDMM( 2, prp->m_lon, prp->m_bIsInTrack );
-            if( arrival ) m_wpList->SetItem( item_line_index, 5, tlon );
+            wxString tlon = toSDMM( 2, prp->m_lon, false );
+            if( arrival ) m_wpList->SetItem( item_line_index, cols[LONGITUDE], tlon );
 
 
             tide_form = _T("");
@@ -2146,19 +2122,19 @@ bool RouteProp::UpdateProperties()
             }  // end of repeatable route point
 
             if( enroute && ( arrival || m_starttime.IsValid() ) ) m_wpList->SetItem(
-                    item_line_index, 6, time_form );
+                item_line_index, cols[ETE_ETD], time_form );
             else
-                m_wpList->SetItem( item_line_index, 6, _T("----") );
+                m_wpList->SetItem( item_line_index, cols[ETE_ETD], _T("----") );
 
             //Leg speed
             wxString s;
             s.Printf( _T("%5.2f"), toUsrSpeed( leg_speed ) );
-            if( arrival ) m_wpList->SetItem( item_line_index, 7, s );
+            if( arrival ) m_wpList->SetItem( item_line_index, cols[SPEED], s );
 
-            if( enroute ) m_wpList->SetItem( item_line_index, 8, tide_form );
+            if( enroute ) m_wpList->SetItem( item_line_index, cols[NEXT_TIDE], tide_form );
             else {
-                m_wpList->SetItem( item_line_index, 7, nullify );
-                m_wpList->SetItem( item_line_index, 8, nullify );
+                m_wpList->SetItem( item_line_index, cols[NEXT_TIDE], nullify );
+                m_wpList->SetItem( item_line_index, cols[DESCRIPTION], nullify );
             }
 
             //  Save for iterating distance/bearing calculation
@@ -2275,15 +2251,6 @@ bool RouteProp::SaveChanges( void )
         pConfig->UpdateSettings();
     }
 
-    if( m_pRoute && ( m_pRoute->IsActive() || ((Track*) m_pRoute)->IsRunning() ) )
-    {
-        wxJSONValue v;
-        v[_T("Name")] =  m_pRoute->m_RouteNameString;
-        v[_T("GUID")] =  m_pRoute->m_GUID;
-        wxString msg_id( _T("OCPN_TRK_ACTIVATED") );
-        g_pi_manager->SendJSONMessageToAllPlugins( msg_id, v );
-    }
-
     return true;
 }
 
@@ -2293,7 +2260,7 @@ void RouteProp::OnPlanSpeedCtlUpdated( wxCommandEvent& event )
     wxString spd = m_PlanSpeedCtl->GetValue();
     double s;
     spd.ToDouble( &s );
-    if( ( 0.1 < s ) && ( s < 1000.0 ) && !m_pRoute->m_bIsTrack ) {
+    if( ( 0.1 < s ) && ( s < 1000.0 ) ) {
         m_planspeed = fromUsrSpeed( s );
 
         UpdateProperties();
@@ -2402,12 +2369,8 @@ void RouteProp::OnRoutepropOkClick( wxCommandEvent& event )
     m_pEnroutePoint = NULL;
     m_bStartNow = false;
 
-    if( RouteManagerDialog::getInstanceFlag() && pRouteManagerDialog->IsShown() ) {
-        if( !m_pRoute->m_bIsTrack )
-            pRouteManagerDialog->UpdateRouteListCtrl();
-        else
-            pRouteManagerDialog->UpdateTrkListCtrl();
-    }
+    if( RouteManagerDialog::getInstanceFlag() && pRouteManagerDialog->IsShown() )
+        pRouteManagerDialog->UpdateRouteListCtrl();
 
     #ifdef __WXGTK__ 
     gFrame->Raise();
@@ -2616,7 +2579,7 @@ MarkInfoDef::MarkInfoDef( wxWindow* parent, wxWindowID id, const wxString& title
     bSizerTextProperties->Add( bSizerArrivalRadius, 0, wxEXPAND, 5 );
 
     //  Waypoints
-    m_checkBoxShowWaypointRangeRings = new wxCheckBox( m_panelBasicProperties, ID_SHOWWAYPOINTRANGERINGS, _("Show Range Rings"),
+    m_checkBoxShowWaypointRangeRings = new wxCheckBox( m_panelBasicProperties, ID_SHOWWAYPOINTRANGERINGS, _("Show range rings"),
             wxDefaultPosition, wxDefaultSize, wxALIGN_RIGHT );
     bSizerTextProperties->Add( m_checkBoxShowWaypointRangeRings, 0, wxALL, 0 );
 
@@ -2636,7 +2599,7 @@ MarkInfoDef::MarkInfoDef( wxWindow* parent, wxWindowID id, const wxString& title
     waypointradarGrid->AddGrowableCol( 1 );
     bSizerTextProperties->Add( waypointradarGrid, 0, wxLEFT | wxRIGHT| wxEXPAND, 5 );
 
-    wxStaticText* waypointdistanceText = new wxStaticText( m_panelBasicProperties, wxID_STATIC, _("Ring Spacing") );
+    wxStaticText* waypointdistanceText = new wxStaticText( m_panelBasicProperties, wxID_STATIC, _("Distance between rings") );
     waypointradarGrid->Add( waypointdistanceText, 1, wxEXPAND | wxALL, 1 );
 
     m_textWaypointRangeRingsStep = new wxTextCtrl( m_panelBasicProperties, ID_TEXTCTRL, _T(""), wxDefaultPosition,
@@ -2817,19 +2780,10 @@ MarkInfoDef::MarkInfoDef( wxWindow* parent, wxWindowID id, const wxString& title
     RecalculateSize();
     
     // Connect Events
-    m_textLatitude->Connect( wxEVT_COMMAND_TEXT_ENTER,
-            wxCommandEventHandler( MarkInfoDef::OnPositionCtlUpdated ), NULL, this );
-    m_textLongitude->Connect( wxEVT_COMMAND_TEXT_ENTER,
-            wxCommandEventHandler( MarkInfoDef::OnPositionCtlUpdated ), NULL, this );
-
     m_textLatitude->Connect( wxEVT_CONTEXT_MENU,
             wxCommandEventHandler( MarkInfoImpl::OnRightClick ), NULL, this );
     m_textLongitude->Connect( wxEVT_CONTEXT_MENU,
             wxCommandEventHandler( MarkInfoImpl::OnRightClick ), NULL, this );
-    m_textArrivalRadius->Connect( wxEVT_COMMAND_TEXT_ENTER,
-            wxCommandEventHandler( MarkInfoDef::OnArrivalRadiusChange ), NULL, this );
-    m_textWaypointRangeRingsStep->Connect( wxEVT_COMMAND_TEXT_ENTER,
-            wxCommandEventHandler( MarkInfoDef::OnWaypointRangeRingsStepChange ), NULL, this );
 
     m_textDescription->Connect( wxEVT_COMMAND_TEXT_UPDATED,
             wxCommandEventHandler( MarkInfoDef::OnDescChangedBasic ), NULL, this );
@@ -2922,16 +2876,8 @@ void MarkInfoDef::OnWaypointRangeRingSelect( wxCommandEvent& event )
 MarkInfoDef::~MarkInfoDef()
 {
     // Disconnect Events
-    m_textLatitude->Disconnect( wxEVT_COMMAND_TEXT_ENTER,
-            wxCommandEventHandler( MarkInfoDef::OnPositionCtlUpdated ), NULL, this );
-    m_textLongitude->Disconnect( wxEVT_COMMAND_TEXT_ENTER,
-            wxCommandEventHandler( MarkInfoDef::OnPositionCtlUpdated ), NULL, this );
     m_textDescription->Disconnect( wxEVT_COMMAND_TEXT_UPDATED,
             wxCommandEventHandler( MarkInfoDef::OnDescChangedBasic ), NULL, this );
-    m_textArrivalRadius->Disconnect( wxEVT_COMMAND_TEXT_ENTER,
-            wxCommandEventHandler( MarkInfoDef::OnArrivalRadiusChange ), NULL, this );
-    m_textWaypointRangeRingsStep->Disconnect( wxEVT_COMMAND_TEXT_ENTER,
-            wxCommandEventHandler( MarkInfoDef::OnWaypointRangeRingsStepChange ), NULL, this );
     m_buttonExtDescription->Disconnect( wxEVT_COMMAND_BUTTON_CLICKED,
             wxCommandEventHandler( MarkInfoDef::OnExtDescriptionClick ), NULL, this );
     this->Disconnect( wxID_ANY, wxEVT_COMMAND_MENU_SELECTED,
@@ -3142,22 +3088,37 @@ bool MarkInfoImpl::UpdateProperties( bool positionOnly )
         m_bcomboBoxIcon->Clear();
         //      Iterate on the Icon Descriptions, filling in the combo control
         bool fillCombo = m_bcomboBoxIcon->GetCount() == 0;
-        wxImageList *icons = pWayPointMan->Getpmarkicon_image_list();
-
-        int target = 16;
-        if( fillCombo  && icons){
-            for( int i = 0; i < pWayPointMan->GetNumIcons(); i++ ) {
-                wxString *ps = pWayPointMan->GetIconDescription( i );
-                wxBitmap bmp = icons->GetBitmap( i );
-
-                if(g_ChartScaleFactorExp > 1.0){
-                    target = bmp.GetHeight() * g_ChartScaleFactorExp;
-                    wxImage img = bmp.ConvertToImage();
-                    img.Rescale(target, target, wxIMAGE_QUALITY_HIGH);
-                    bmp = wxBitmap(img);
+        
+        double factor = (0.7 * (double)GetCharHeight()) / (double)16.0;   // Because I know what the base icon size is....
+        factor = wxMin(3.0, factor);            // not greater than 3
+        factor = wxMax(1.0, factor);            // nor less than 1
+        
+        wxImageList *icon_list = NULL;
+        
+        //  A little optimization for "normal" situations, requiring no scaling
+        if(factor < 2.){
+            factor = 1.;
+            
+            if( fillCombo ){
+                for( int i = 0; i < pWayPointMan->GetNumIcons(); i++ ) {
+                    wxString *ps = pWayPointMan->GetIconDescription( i );
+                    wxBitmap bmp = pWayPointMan->GetIconBitmapForList(i);
+                    
+                    m_bcomboBoxIcon->Append( *ps, bmp );
                 }
+            }
                 
-                m_bcomboBoxIcon->Append( *ps, bmp );
+        }
+        else{
+            icon_list = pWayPointMan->Getpmarkicon_image_list( factor );
+
+            if( fillCombo  && icon_list){
+                for( int i = 0; i < pWayPointMan->GetNumIcons(); i++ ) {
+                    wxString *ps = pWayPointMan->GetIconDescription( i );
+                    wxBitmap bmp = icon_list->GetBitmap( i );
+                
+                    m_bcomboBoxIcon->Append( *ps, bmp );
+                }
             }
         }
         
@@ -3170,14 +3131,14 @@ bool MarkInfoImpl::UpdateProperties( bool positionOnly )
 
         //  not found, so add  it to the list, with a generic bitmap and using the name as description
         // n.b.  This should never happen...
-        if( icons && -1 == iconToSelect){
-            m_bcomboBoxIcon->Append( m_pRoutePoint->GetIconName(), icons->GetBitmap( 0 ) );
-            iconToSelect = m_bcomboBoxIcon->GetCount() - 1;
-        }
+         if( icon_list && -1 == iconToSelect){
+             m_bcomboBoxIcon->Append( m_pRoutePoint->GetIconName(), icon_list->GetBitmap( 0 ) );
+             iconToSelect = m_bcomboBoxIcon->GetCount() - 1;
+         }
         
         
         m_bcomboBoxIcon->Select( iconToSelect );
-        icons = NULL;
+        icon_list = NULL;
     }
 
     #ifdef __OCPN__ANDROID__

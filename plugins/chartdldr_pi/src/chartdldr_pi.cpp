@@ -351,9 +351,7 @@ void chartdldr_pi::ShowPreferencesDialog( wxWindow* parent )
             m_dldrpanel->SetBulkUpdate( m_allow_bulk_update );
         
     }
-    dialog->Close();
-    dialog->Destroy();
-    wxDELETE(dialog);
+    delete dialog;
 }
 
 ChartSource::ChartSource( wxString name, wxString url, wxString localdir )
@@ -421,7 +419,7 @@ void ChartDldrPanelImpl::OnContextMenu( wxMouseEvent& event )
     wxPoint point = event.GetPosition();
     wxPoint p1 = ((wxWindow *)m_clCharts)->GetPosition();
 
-#ifdef __WXQT__    
+#ifdef __OCPN_ANDROID__    
     wxFont *pf = OCPNGetFont(_T("Menu"), 0);
     
     // add stuff
@@ -1072,7 +1070,11 @@ After downloading the charts, please extract them to %s"), pPlugIn->m_pChartCata
             break;
     }
     DisableForDownload( true );
+#ifdef __OCPN__ANDROID__
     m_bDnldCharts->SetLabel( _("Download\n selected charts") );
+#else
+    m_bDnldCharts->SetLabel( _("Download selected charts") );
+#endif
     DownloadIsCancel = false;
     SetSource(GetSelectedCatalog());
     if( failed_downloads > 0 && !updatingAll )
@@ -1153,8 +1155,8 @@ void ChartDldrPanelImpl::DeleteSource( wxCommandEvent& event )
     if( wxYES != wxMessageBox(_("Do you really want to remove the chart source?\nThe local chart files will not be removed, but you will not be able to update the charts anymore."),
                                  _("Chart Downloader"), wxYES_NO | wxCENTRE, this) )
         return;
-	int ToBeRemoved = GetSelectedCatalog();
-	m_lbChartSources->SetItemState(ToBeRemoved,  0, wxLIST_STATE_SELECTED|wxLIST_STATE_FOCUSED);
+    int ToBeRemoved = GetSelectedCatalog();
+    m_lbChartSources->SetItemState(ToBeRemoved, 0, wxLIST_STATE_SELECTED|wxLIST_STATE_FOCUSED);
     pPlugIn->m_chartSources->RemoveAt(ToBeRemoved);
     m_lbChartSources->DeleteItem(ToBeRemoved);
     CleanForm();
@@ -1200,9 +1202,7 @@ void ChartDldrPanelImpl::AddSource( wxCommandEvent& event )
         SelectCatalog(m_lbChartSources->GetItemCount() - 1);
         pPlugIn->SaveConfig();
     }
-//    dialog->Close();
-    dialog->Destroy();
-    wxDELETE(dialog);
+    delete dialog;
     event.Skip();
     
     Show();
@@ -1261,9 +1261,7 @@ void ChartDldrPanelImpl::DoEditSource()
         pPlugIn->SaveConfig();
         SetSource(cat);
     }
-//    dialog->Close();
-    dialog->Destroy();
-    wxDELETE(dialog);
+    delete dialog;
     
     Show();
 }

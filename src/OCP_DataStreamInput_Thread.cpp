@@ -26,6 +26,10 @@
 #include "datastream.h"
 #include "dychart.h"
 
+#ifdef __WXQT__
+#define __POSIX__
+#endif
+
 #ifdef __POSIX__
 	#include <sys/termios.h>
 #endif
@@ -101,13 +105,6 @@ void OCP_DataStreamInput_Thread::OnExit(void)
 
 //      Sadly, the thread itself must implement the underlying OS serial port
 //      in a very machine specific way....
-
-#ifdef __WXQT__
-#define __POSIX__
-#include <termios.h>
-#include <unistd.h>
-#endif
-
 
 #ifdef __POSIX__
 //    Entry Point
@@ -473,6 +470,7 @@ void *OCP_DataStreamInput_Thread::Entry()
                                     
                                     if (dwWritten != dwToWrite) {
                                         //ErrorReporter("Error writing data to port (overlapped)");
+                                        fWaitingOnWrite = false;        //Stop waiting for this op to complete.  Just abort it.
                                     }
                                     else {
                                         // Delayed write completed

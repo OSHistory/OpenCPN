@@ -1,3 +1,4 @@
+
 /***************************************************************************
  *
  * Project:  OpenCPN
@@ -121,29 +122,6 @@ enum {
       ID_AISDIALOGOK
 };
 
-const wxEventType wxEVT_OCPN_COMPRESSPROGRESS = wxNewEventType();
-
-//----------------------------------------------------------------------------
-// OCPN_CompressProgressEvent
-//----------------------------------------------------------------------------
-class OCPN_CompressProgressEvent: public wxEvent
-{
-public:
-    OCPN_CompressProgressEvent( wxEventType commandType = wxEVT_NULL, int id = 0 );
-    ~OCPN_CompressProgressEvent( );
-    
-    // accessors
-    void SetString(std::string string) { m_string = string; }
-    std::string GetString() { return m_string; }
-    
-    // required for sending with wxPostEvent()
-    wxEvent *Clone() const;
-    int count;
-    int thread;
-    
-    std::string m_string;
-};
-
 //----------------------------------------------------------------------------
 // ChartCanvas
 //----------------------------------------------------------------------------
@@ -172,7 +150,10 @@ public:
       void PopupMenuHandler(wxCommandEvent& event);
 
       bool SetUserOwnship();
-          
+      
+      double GetCanvasRangeMeters();
+      void SetCanvasRangeMeters( double range );
+      
       void EnablePaint(bool b_enable);
       virtual bool SetCursor(const wxCursor &c);
       virtual void Refresh( bool eraseBackground = true,
@@ -301,7 +282,7 @@ public:
       void ShowObjectQueryWindow( int x, int y, float zlat, float zlon);
       void ShowMarkPropertiesDialog( RoutePoint* markPoint );
       void ShowRoutePropertiesDialog(wxString title, Route* selected);
-      void ShowTrackPropertiesDialog( Route* selected );
+      void ShowTrackPropertiesDialog( Track* selected );
       void DrawTCWindow(int x, int y, void *pIDX);
       
       
@@ -331,8 +312,6 @@ public:
       RoutePoint  *m_prev_pMousePoint;
       Quilt       *m_pQuilt;
       
-      bool PurgeGLCanvasChartCache(ChartBase *pc, bool b_purge_full = false);
-
       void RemovePointFromRoute( RoutePoint* point, Route* route );
 
       void DrawBlinkObjects( void );
@@ -346,13 +325,13 @@ public:
       glChartCanvas *GetglCanvas(){ return m_glcc; }
 #endif      
 
-      void OnEvtCompressProgress( OCPN_CompressProgressEvent & event );
       void JaggyCircle(ocpnDC &dc, wxPen pen, int x, int y, int radius);
       
       bool CheckEdgePan( int x, int y, bool bdragging, int margin, int delta );
 
       Route       *m_pMouseRoute;
       bool        m_bMeasure_Active;
+      bool        m_bMeasure_DistCircle;
       wxString    m_active_upload_port;
       bool        m_bAppendingRoute;
       int         m_nMeasureState;
@@ -362,6 +341,8 @@ public:
       CanvasMenuHandler  *m_canvasMenu;
       
 private:
+      void CallPopupMenu( int x, int y );
+      
       bool IsTempMenuBarEnabled();
       bool InvokeCanvasMenu(int x, int y, int seltype);
     
@@ -407,7 +388,7 @@ private:
       SelectItem  *m_pFoundPoint;
       bool        m_bChartDragging;
       Route       *m_pSelectedRoute;
-      Route       *m_pSelectedTrack;
+      Track       *m_pSelectedTrack;
       wxArrayPtrVoid *m_pEditRouteArray;
       RoutePoint  *m_pFoundRoutePoint;
 
@@ -464,8 +445,9 @@ private:
       void MovementStopTimerEvent( wxTimerEvent& );
       void OnCursorTrackTimerEvent(wxTimerEvent& event);
 
-      void DrawAllRoutesInBBox(ocpnDC& dc, LLBBox& BltBBox, const wxRegion& clipregion);
-      void DrawAllWaypointsInBBox(ocpnDC& dc, LLBBox& BltBBox, const wxRegion& clipregion, bool bDrawMarksOnly);
+      void DrawAllTracksInBBox( ocpnDC& dc, LLBBox& BltBBox );
+      void DrawAllRoutesInBBox(ocpnDC& dc, LLBBox& BltBBox );
+      void DrawAllWaypointsInBBox(ocpnDC& dc, LLBBox& BltBBox );
       void DrawAnchorWatchPoints( ocpnDC& dc );
       double GetAnchorWatchRadiusPixels(RoutePoint *pAnchorWatchPoint);
 
@@ -520,7 +502,8 @@ private:
       bool        warp_flag;
 
 
-      float       current_draw_scaler;
+      float       current_draw_scaler; // Affect displayed size of current arrows
+      float       tide_draw_scaler;    // Affect displayed size of tide rectangles
 
 
       wxTimer     *pPanTimer;       // This timer used for auto panning on route creation and edit
@@ -645,6 +628,7 @@ private:
 //#endif
 
       //Smooth movement member variables
+      wxPoint     m_pan_drag;
       int         m_panx, m_pany, m_modkeys;
       double      m_panspeed;
       bool        m_bmouse_key_mod;

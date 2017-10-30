@@ -1,4 +1,4 @@
-/******************************************************************************
+﻿/******************************************************************************
  * $Id: dial.cpp, v1.0 2010/08/05 SethDart Exp $
  *
  * Project:  OpenCPN
@@ -25,6 +25,7 @@
  *   51 Franklin Street, Fifth Floor, Boston, MA 02110-1301,  USA.             *
  ***************************************************************************
  */
+
 
 #include "dial.h"
 #include "wx28compat.h"
@@ -95,12 +96,12 @@ void DashboardInstrument_Dial::SetData(int st, double data, wxString unit)
 {
     // Filter out undefined data, normally comes through as "999".
     // Test value must be greater than 360 to enable some compass-type displays.
-      if ( (st == m_MainValueCap) && (data < 400.0) )
+      if ( (st == m_MainValueCap) && (data < 1200.0) )
       {
             m_MainValue = data;
             m_MainValueUnit = unit;
       }
-      else if ( (st == m_ExtraValueCap) && (data < 400.0) )
+      else if ( (st == m_ExtraValueCap) && (data < 1200.0) )
       {
             m_ExtraValue = data;
             m_ExtraValueUnit = unit;
@@ -158,25 +159,42 @@ void DashboardInstrument_Dial::DrawFrame( wxGCDC* dc )
         wxCoord x2 = m_cx + ( ( radi ) * cos( angle2 ) );
         wxCoord y2 = m_cy + ( ( radi ) * sin( angle2 ) );
         dc->DrawArc( x1, y1, x2, y2, m_cx, m_cy );
+
         GetGlobalColor( _T("DASHG"), &cl );
         pen.SetColour( cl );
         dc->SetPen( pen );
-        angle1 = deg2rad( 90 ); // 305-ANGLE_OFFSET
-        angle2 = deg2rad( 270 ); // 55-ANGLE_OFFSET
+        angle1 = deg2rad( 89 ); // 305-ANGLE_OFFSET
+        angle2 = deg2rad( 271 ); // 55-ANGLE_OFFSET
         x1 = m_cx + ( ( radi ) * cos( angle1 ) );
         y1 = m_cy + ( ( radi ) * sin( angle1 ) );
         x2 = m_cx + ( ( radi ) * cos( angle2 ) );
         y2 = m_cy + ( ( radi ) * sin( angle2 ) );
         dc->DrawArc( x1, y1, x2, y2, m_cx, m_cy );
+
+        // Some platforms have trouble with transparent pen.
+        // so we simply draw arcs for the outer ring.
         GetGlobalColor( _T("DASHF"), &cl );
         pen.SetWidth( penwidth );
+        pen.SetColour( cl );
+        dc->SetPen( pen );
+        angle1 = deg2rad( 0 );
+        angle2 = deg2rad( 180 );
+        radi = m_radius - 1;
+
+        x1 = m_cx + ( ( radi ) * cos( angle1 ) );
+        y1 = m_cy + ( ( radi ) * sin( angle1 ) );
+        x2 = m_cx + ( ( radi ) * cos( angle2 ) );
+        y2 = m_cy + ( ( radi ) * sin( angle2 ) );
+        dc->DrawArc( x1, y1, x2, y2, m_cx, m_cy );
+        dc->DrawArc( x2, y2, x1, y1, m_cx, m_cy );
+
     }
-
-    GetGlobalColor( _T("DASHF"), &cl );
-    pen.SetColour( cl );
-    dc->SetPen( pen );
-
-    dc->DrawCircle( m_cx, m_cy, m_radius );
+    else{
+        GetGlobalColor( _T("DASHF"), &cl );
+        pen.SetColour( cl );
+        dc->SetPen( pen );
+        dc->DrawCircle( m_cx, m_cy, m_radius );
+    }
 }
 
 void DashboardInstrument_Dial::DrawMarkers(wxGCDC* dc)
@@ -607,4 +625,3 @@ void DrawBoat( wxGCDC* dc, int cx, int cy, int radius )
 
     dc->DrawPolygon(7, points, 0, 0);
 }
-

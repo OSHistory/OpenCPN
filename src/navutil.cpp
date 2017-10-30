@@ -73,6 +73,7 @@
 #include "NMEALogWindow.h"
 #include "AIS_Decoder.h"
 #include "OCPNPlatform.h"
+#include "Track.h"
 
 #ifdef USE_S57
 #include "s52plib.h"
@@ -93,6 +94,7 @@ extern double           g_ChartNotRenderScaleFactor;
 extern int              g_restore_stackindex;
 extern int              g_restore_dbindex;
 extern RouteList        *pRouteList;
+extern TrackList        *pTrackList;
 extern LayerList        *pLayerList;
 extern int              g_LayerIdx;
 extern Select           *pSelect;
@@ -103,11 +105,12 @@ extern double           kLat, kLon;
 extern double           initial_scale_ppm, initial_rotation;
 extern ColorScheme      global_color_scheme;
 extern int              g_nbrightness;
-extern bool             g_bShowMag;
+extern bool             g_bShowTrue, g_bShowMag;
 extern double           g_UserVar;
 extern bool             g_bShowStatusBar;
 extern bool             g_bUIexpert;
 extern bool             g_bFullscreen;
+extern int              g_nDepthUnitDisplay;
 
 extern wxToolBarBase    *toolBar;
 
@@ -270,11 +273,13 @@ extern int              g_n_ownship_min_mm;
 extern double           g_n_arrival_circle_radius;
 
 extern bool             g_bPreserveScaleOnX;
+extern bool             g_bsimplifiedScalebar;
 
 extern bool             g_bUseRMC;
 extern bool             g_bUseGLL;
 
 extern wxString         g_locale;
+extern wxString         g_localeOverride;
 
 extern bool             g_bUseRaster;
 extern bool             g_bUseVector;
@@ -304,7 +309,6 @@ extern bool             g_bAISRolloverShowClass;
 extern bool             g_bAISRolloverShowCOG;
 extern bool             g_bAISRolloverShowCPA;
 
-extern bool             g_blocale_changed;
 extern bool             g_bDebugGPSD;
 
 extern bool             g_bfilter_cogsog;
@@ -319,9 +323,9 @@ extern bool             g_bQuiltStart;
 
 extern int              g_SkewCompUpdatePeriod;
 
-extern int              g_toolbar_x;
-extern int              g_toolbar_y;
-extern long             g_toolbar_orient;
+extern int              g_maintoolbar_x;
+extern int              g_maintoolbar_y;
+extern long             g_maintoolbar_orient;
 
 extern int              g_GPU_MemSize;
 
@@ -343,6 +347,8 @@ extern int              g_GroupIndex;
 
 extern bool             g_bDebugOGL;
 extern int              g_current_arrow_scale;
+extern int              g_tide_rectangle_scale;
+extern int              g_tcwin_scale;
 extern wxString         g_GPS_Ident;
 extern bool             g_bGarminHostUpload;
 extern wxString         g_uploadConnection;
@@ -363,6 +369,7 @@ extern int              g_SENC_LOD_pixels;
 extern ArrayOfMMSIProperties   g_MMSI_Props_Array;
 
 extern int              g_chart_zoom_modifier;
+extern int              g_chart_zoom_modifier_vector;
 
 extern int              g_NMEAAPBPrecision;
 
@@ -385,6 +392,12 @@ extern int              g_GUIScaleFactor;
 extern int              g_ChartScaleFactor;
 extern float            g_ChartScaleFactorExp;
 
+extern bool             g_bInlandEcdis;
+extern int              g_iENCToolbarPosX;
+extern int              g_iENCToolbarPosY;
+
+extern bool             g_bSpaceDropMark;
+
 extern wxString         g_uiStyle;
 
 int                     g_nCPUCount;
@@ -398,702 +411,7 @@ static const long long lNaN = 0xfff8000000000000;
 #define NAN (*(double*)&lNaN)
 #endif
 
-//---------------------------------------------------------------------------------
-//    Track Implementation
-//---------------------------------------------------------------------------------
 
-#define TIMER_TRACK1           778
-
-BEGIN_EVENT_TABLE ( Track, wxEvtHandler )
-    EVT_TIMER ( TIMER_TRACK1, Track::OnTimerTrack )
-END_EVENT_TABLE()
-
-Track::Track( void )
-{
-    m_TimerTrack.SetOwner( this, TIMER_TRACK1 );
-    m_TimerTrack.Stop();
-    m_bRunning = false;
-    m_bIsTrack = true;
-
-    SetPrecision( g_nTrackPrecision );
-
-    m_prev_time = wxInvalidDateTime;
-    m_lastStoredTP = NULL;
-
-    wxDateTime now = wxDateTime::Now();
-    m_ConfigRouteNum = now.GetTicks();        // a unique number....
-    trackPointState = firstPoint;
-    m_lastStoredTP = NULL;
-    m_removeTP = NULL;
-    m_fixedTP = NULL;
-    m_track_run = 0;
-    m_CurrentTrackSeg = 0;
-    m_prev_dist = 999.0;
-}
-
-Track::~Track()
-{
-    Stop();
-}
-
-void Track::SetPrecision( int prec ) {
-    m_nPrecision = prec;
-    switch( m_nPrecision ) {
-        case 0: { // Low
-            m_allowedMaxAngle = 10;
-            m_allowedMaxXTE = 0.008;
-            m_TrackTimerSec = 8;
-            m_minTrackpoint_delta = .004;
-            break;
-        }
-        case 1: { // Medium
-            m_allowedMaxAngle = 10;
-            m_allowedMaxXTE = 0.004;
-            m_TrackTimerSec = 4;
-            m_minTrackpoint_delta = .002;
-            break;
-        }
-        case 2: { // High
-            m_allowedMaxAngle = 10;
-            m_allowedMaxXTE = 0.0015;
-            m_TrackTimerSec = 2;
-            m_minTrackpoint_delta = .001;
-            break;
-        }
-    }
-}
-
-void Track::Start( void )
-{
-    if( !m_bRunning ) {
-        AddPointNow( true );                   // Add initial point
-        m_TimerTrack.Start( 1000, wxTIMER_CONTINUOUS );
-        m_bRunning = true;
-    }
-}
-
-void Track::Stop( bool do_add_point )
-{
-    if(m_bRunning){
-        if(do_add_point)
-            AddPointNow( true );                   // Force add last point
-        else{
-            double delta = 0.0;
-            if( m_lastStoredTP )
-                delta = DistGreatCircle( gLat, gLon, m_lastStoredTP->m_lat, m_lastStoredTP->m_lon );
-
-            if(  delta > m_minTrackpoint_delta )
-                AddPointNow( true );                   // Add last point
-        }
-    }
-
-    m_TimerTrack.Stop();
-    m_bRunning = false;
-    m_track_run = 0;
-}
-
-Track *Track::DoExtendDaily()
-{
-    Route *pExtendRoute = NULL;
-    RoutePoint *pExtendPoint = NULL;
-
-    RoutePoint *pLastPoint = this->GetPoint( 1 );
-
-    wxRouteListNode *route_node = pRouteList->GetFirst();
-    while( route_node ) {
-        Route *proute = route_node->GetData();
-
-        if( !proute->m_bIsInLayer && proute->m_bIsTrack && proute->m_GUID != this->m_GUID ) {
-            RoutePoint *track_node = proute->GetLastPoint();
-            if( track_node->GetCreateTime() <= pLastPoint->GetCreateTime() ) {
-                if( !pExtendPoint  || track_node->GetCreateTime() > pExtendPoint->GetCreateTime() ) {
-                    pExtendPoint = track_node;
-                    pExtendRoute = proute;
-                }
-            }
-        }
-        route_node = route_node->GetNext();                         // next route
-    }
-    if( pExtendRoute
-            && pExtendRoute->GetPoint( 1 )->GetCreateTime().FromTimezone( wxDateTime::GMT0 ).IsSameDate(
-                    pLastPoint->GetCreateTime().FromTimezone( wxDateTime::GMT0 ) ) ) {
-        int begin = 1;
-        if( pLastPoint->GetCreateTime() == pExtendPoint->GetCreateTime() ) begin = 2;
-        pSelect->DeleteAllSelectableTrackSegments( pExtendRoute );
-        wxString suffix = _T("");
-        if( this->m_RouteNameString.IsNull() ) {
-            suffix = pExtendRoute->m_RouteNameString;
-            if( suffix.IsNull() ) suffix = wxDateTime::Today().FormatISODate();
-        }
-        pExtendRoute->CloneTrack( this, begin, this->GetnPoints(), suffix );
-        pSelect->AddAllSelectableTrackSegments( pExtendRoute );
-        pSelect->DeleteAllSelectableTrackSegments( this );
-        this->ClearHighlights();
-        return (Track *)pExtendRoute;
-    } else {
-        if( this->m_RouteNameString.IsNull() )
-            this->m_RouteNameString = wxDateTime::Today().FormatISODate();
-        return NULL;
-    }
-}
-
-void Track::AdjustCurrentTrackPoint( RoutePoint *prototype )
-{
-    if(prototype) {
-        CloneAddedTrackPoint( m_lastStoredTP, prototype );
-        m_prev_time = prototype->GetCreateTime().FromUTC();
-    }
-}
-
-void Track::OnTimerTrack( wxTimerEvent& event )
-{
-    m_TimerTrack.Stop();
-    m_track_run++;
-
-    if( m_lastStoredTP )
-        m_prev_dist = DistGreatCircle( gLat, gLon, m_lastStoredTP->m_lat, m_lastStoredTP->m_lon );
-    else
-        m_prev_dist = 999.0;
-
-    bool b_addpoint = false;
-
-    if( ( m_TrackTimerSec > 0. ) && ( (double) m_track_run >= m_TrackTimerSec )
-            && ( m_prev_dist > m_minTrackpoint_delta ) ) {
-        b_addpoint = true;
-        m_track_run = 0;
-    }
-
-    if( b_addpoint )
-        AddPointNow();
-    else   //continuously update track beginning point timestamp if no movement.
-        if( ( trackPointState == firstPoint ) && !g_bTrackDaily )
-        {
-            wxDateTime now = wxDateTime::Now();
-            wxRoutePointListNode *node = pRoutePointList->GetFirst();
-            if(node)
-                node->GetData()->SetCreateTime(now.ToUTC());
-        }
-
-    m_TimerTrack.Start( 1000, wxTIMER_CONTINUOUS );
-}
-
-RoutePoint* Track::AddNewPoint( vector2D point, wxDateTime time ) {
-    RoutePoint *rPoint = new RoutePoint( point.lat, point.lon, wxString( _T ( "empty" ) ),
-            wxString( _T ( "" ) ), GPX_EMPTY_STRING );
-    rPoint->m_bShowName = false;
-    rPoint->m_bIsVisible = true;
-    rPoint->m_GPXTrkSegNo = 1;
-    rPoint->SetCreateTime(time);
-    AddPoint( rPoint );
-
-    pConfig->AddNewTrackPoint( rPoint, m_GUID );        // This will update the "changes" file only
-
-    //    This is a hack, need to undo the action of Route::AddPoint
-    rPoint->m_bIsInRoute = false;
-    rPoint->m_bIsInTrack = true;
-    return rPoint;
-}
-
-void Track::AddPointNow( bool do_add_point )
-{
-    static std::vector<RoutePoint> skippedPoints;
-
-    wxDateTime now = wxDateTime::Now();
-
-    if( m_prev_dist < 0.0005 )              // avoid zero length segs
-        if( !do_add_point ) return;
-
-    if( m_prev_time.IsValid() ) if( m_prev_time == now )                    // avoid zero time segs
-        if( !do_add_point ) return;
-
-    vector2D gpsPoint( gLon, gLat );
-
-    // The dynamic interval algorithm will gather all track points in a queue,
-    // and analyze the cross track errors for each point before actually adding
-    // a point to the track.
-
-    switch( trackPointState ) {
-        case firstPoint: {
-            RoutePoint *pTrackPoint = AddNewPoint( gpsPoint, now.ToUTC() );
-            m_lastStoredTP = pTrackPoint;
-            trackPointState = secondPoint;
-            do_add_point = false;
-            break;
-        }
-        case secondPoint: {
-            vector2D pPoint( gLon, gLat );
-            skipPoints.push_back( pPoint );
-            skipTimes.push_back( now.ToUTC() );
-            trackPointState = potentialPoint;
-            break;
-        }
-        case potentialPoint: {
-            if( gpsPoint == skipPoints[skipPoints.size()-1] ) break;
-
-            unsigned int xteMaxIndex = 0;
-            double xteMax = 0;
-
-            // Scan points skipped so far and see if anyone has XTE over the threshold.
-            for( unsigned int i=0; i<skipPoints.size(); i++ ) {
-                double xte = GetXTE( m_lastStoredTP->m_lat, m_lastStoredTP->m_lon, gLat, gLon, skipPoints[i].lat, skipPoints[i].lon );
-                if( xte > xteMax ) {
-                    xteMax = xte;
-                    xteMaxIndex = i;
-                }
-            }
-            if( xteMax > m_allowedMaxXTE ) {
-                RoutePoint *pTrackPoint = AddNewPoint( skipPoints[xteMaxIndex], skipTimes[xteMaxIndex] );
-                pSelect->AddSelectableTrackSegment( m_lastStoredTP->m_lat, m_lastStoredTP->m_lon,
-                        pTrackPoint->m_lat, pTrackPoint->m_lon,
-                        m_lastStoredTP, pTrackPoint, this );
-
-                m_prevFixedTP = m_fixedTP;
-                m_fixedTP = m_removeTP;
-                m_removeTP = m_lastStoredTP;
-                m_lastStoredTP = pTrackPoint;
-                for( unsigned int i=0; i<=xteMaxIndex; i++ ) {
-                    skipPoints.pop_front();
-                    skipTimes.pop_front();
-                }
-
-                // Now back up and see if we just made 3 points in a straight line and the middle one
-                // (the next to last) point can possibly be eliminated. Here we reduce the allowed
-                // XTE as a function of leg length. (Half the XTE for very short legs).
-                if( GetnPoints() > 2 ) {
-                    double dist = DistGreatCircle( m_fixedTP->m_lat, m_fixedTP->m_lon, m_lastStoredTP->m_lat, m_lastStoredTP->m_lon );
-                    double xte = GetXTE( m_fixedTP, m_lastStoredTP, m_removeTP );
-                    if( xte < m_allowedMaxXTE / wxMax(1.0, 2.0 - dist*2.0) ) {
-                        pRoutePointList->pop_back();
-                        pRoutePointList->pop_back();
-                        pRoutePointList->push_back( m_lastStoredTP );
-                        SetnPoints();
-                        pSelect->DeletePointSelectableTrackSegments( m_removeTP );
-                        pSelect->AddSelectableTrackSegment( m_fixedTP->m_lat, m_fixedTP->m_lon,
-                                m_lastStoredTP->m_lat, m_lastStoredTP->m_lon,
-                                m_fixedTP, m_lastStoredTP, this );
-                        delete m_removeTP;
-                        m_removeTP = m_fixedTP;
-                        m_fixedTP = m_prevFixedTP;
-                    }
-                }
-            }
-
-            skipPoints.push_back( gpsPoint );
-            skipTimes.push_back( now.ToUTC() );
-            break;
-        }
-    }
-
-    // Check if this is the last point of the track.
-    if( do_add_point ) {
-        RoutePoint *pTrackPoint = AddNewPoint( gpsPoint, now.ToUTC() );
-        pSelect->AddSelectableTrackSegment( m_lastStoredTP->m_lat, m_lastStoredTP->m_lon,
-                pTrackPoint->m_lat, pTrackPoint->m_lon,
-                m_lastStoredTP, pTrackPoint, this );
-    }
-
-    m_prev_time = now;
-}
-
-void Track::Draw( ocpnDC& dc, ViewPort &VP )
-{
-    if( !IsVisible() || GetnPoints() == 0 ) return;
-/*
-    if( m_bRunning ) {                                       // pjotrc 2010.02.26
-        dc.SetBrush( wxBrush( GetGlobalColor( _T ( "URED" ) ) ) );
-        wxPen dPen( GetGlobalColor( _T ( "URED" ) ), g_track_line_width );
-        dc.SetPen( dPen );
-    } else {
-        dc.SetBrush( wxBrush( GetGlobalColor( _T ( "CHMGD" ) ) ) );
-        wxPen dPen( GetGlobalColor( _T ( "CHMGD" ) ), g_track_line_width );
-        dc.SetPen( dPen );
-    }
-*/
-    double radius = 0.;
-    if( g_bHighliteTracks ) {
-        double radius_meters = 20; //Current_Ch->GetNativeScale() * .0015;         // 1.5 mm at original scale
-        radius = radius_meters * VP.view_scale_ppm;
-    }
-
-    unsigned short int FromSegNo = 1;
-
-
-    wxRoutePointListNode *node = pRoutePointList->GetFirst();
-    RoutePoint *prp = node->GetData();
-
-    //  Establish basic colour
-    wxColour basic_colour;
-    if( m_bRunning || prp->GetIconName().StartsWith( _T("xmred") ) ) {
-            basic_colour = GetGlobalColor( _T ( "URED" ) );
-    } else
-        if( prp->GetIconName().StartsWith( _T("xmblue") ) ) {
-                basic_colour = GetGlobalColor( _T ( "BLUE3" ) );
-        } else
-            if( prp->GetIconName().StartsWith( _T("xmgreen") ) ) {
-                    basic_colour = GetGlobalColor( _T ( "UGREN" ) );
-            } else {
-                    basic_colour = GetGlobalColor( _T ( "CHMGD" ) );
-            }
-
-    wxPenStyle style = wxPENSTYLE_SOLID;
-    int width = g_pRouteMan->GetTrackPen()->GetWidth();
-    wxColour col;
-    if( m_style != wxPENSTYLE_INVALID )
-        style = m_style;
-    if( m_width != WIDTH_UNDEFINED )
-        width = m_width;
-    if( m_Colour == wxEmptyString ) {
-        col = basic_colour;
-    } else {
-        for( unsigned int i = 0; i < sizeof( ::GpxxColorNames ) / sizeof(wxString); i++ ) {
-            if( m_Colour == ::GpxxColorNames[i] ) {
-                col = ::GpxxColors[i];
-                break;
-            }
-        }
-    }
-    dc.SetPen( *wxThePenList->FindOrCreatePen( col, width, style ) );
-    dc.SetBrush( *wxTheBrushList->FindOrCreateBrush( col, wxBRUSHSTYLE_SOLID ) );
-
-    std::list< std::list<wxPoint> > pointlists;
-    std::list<wxPoint> pointlist;
-
-    //    Get the dc boundary
-    int sx, sy;
-    dc.GetSize( &sx, &sy );
-
-    //  Draw the first point
-    wxPoint rpt;
-    DrawPointWhich( dc, 1, &rpt );
-    pointlist.push_back(rpt);
-
-    node = node->GetNext();
-    while( node ) {
-        RoutePoint *prp = node->GetData();
-        unsigned short int ToSegNo = prp->m_GPXTrkSegNo;
-
-        wxPoint r;
-        cc1->GetCanvasPointPix( prp->m_lat, prp->m_lon, &r );
-
-        //  We do inline decomposition of the line segments, in a simple minded way
-        //  If the line segment length is less than approximately 2 pixels, then simply don't render it,
-        //  but continue on to the next point.
-
-        int x0 = r.x, y0 = r.y, x1 = rpt.x, y1= rpt.y;
-        if((abs(r.x - rpt.x) > 1) || (abs(r.y - rpt.y) > 1) ||
-            cohen_sutherland_line_clip_i( &x0, &y0, &x1, &y1, 0, sx, 0, sy ) != Visible ) {
-            prp->Draw( dc, &rpt );
-
-            if( ToSegNo != FromSegNo ) {
-                if(pointlist.size()) {
-                    pointlists.push_back(pointlist);
-                    pointlist.clear();
-                }
-            }
-            pointlist.push_back(rpt);
-        }
-
-        node = node->GetNext();
-        FromSegNo = ToSegNo;
-    }
-
-    //    Add last segment, dynamically, maybe.....
-    if( m_bRunning ) {
-        cc1->GetCanvasPointPix( gLat, gLon, &rpt );
-        pointlist.push_back(rpt);
-    }
-    pointlists.push_back(pointlist);
-
-    for(std::list< std::list<wxPoint> >::iterator lines = pointlists.begin();
-        lines != pointlists.end(); lines++) {
-        wxPoint *points = new wxPoint[lines->size()];
-        int i = 0;
-        for(std::list<wxPoint>::iterator line = lines->begin();
-            line != lines->end(); line++) {
-            points[i] = *line;
-            i++;
-        }
-
-        int hilite_width = radius;
-        if( hilite_width ) {
-            wxPen psave = dc.GetPen();
-
-            dc.StrokeLines( i, points );
-
-            wxColour y = GetGlobalColor( _T ( "YELO1" ) );
-            wxColour hilt( y.Red(), y.Green(), y.Blue(), 128 );
-
-            wxPen HiPen( hilt, hilite_width, wxPENSTYLE_SOLID );
-            dc.SetPen( HiPen );
-
-            dc.StrokeLines( i, points );
-
-            dc.SetPen( psave );
-        } else
-            dc.StrokeLines( i, points );
-
-        delete [] points;
-    }
-}
-
-Route *Track::RouteFromTrack( wxProgressDialog *pprog )
-{
-
-    Route *route = new Route();
-    wxRoutePointListNode *prpnode = pRoutePointList->GetFirst();
-    RoutePoint *pWP_src = prpnode->GetData();
-    wxRoutePointListNode *prpnodeX;
-    RoutePoint *pWP_dst;
-    RoutePoint *prp_OK = NULL;  // last routepoint known not to exceed xte limit, if not yet added
-
-    wxString icon = _T("xmblue");
-    if( g_TrackDeltaDistance >= 0.1 ) icon = _T("diamond");
-
-    int ic = 0;
-    int next_ic = 0;
-    int back_ic = 0;
-    int nPoints = pRoutePointList->GetCount();
-    bool isProminent = true;
-    double delta_dist = 0.;
-    double delta_hdg, xte;
-    double leg_speed = 0.1;
-
-    if( pRoutePropDialog ) leg_speed = pRoutePropDialog->m_planspeed;
-    else
-        leg_speed = g_PlanSpeed;
-
-// add first point
-
-    pWP_dst = new RoutePoint( pWP_src->m_lat, pWP_src->m_lon, icon, _T ( "" ), GPX_EMPTY_STRING );
-    route->AddPoint( pWP_dst );
-
-    pWP_dst->m_bShowName = false;
-
-    pSelect->AddSelectableRoutePoint( pWP_dst->m_lat, pWP_dst->m_lon, pWP_dst );
-
-// add intermediate points as needed
-
-    prpnode = prpnode->GetNext();
-
-    while( prpnode ) {
-        RoutePoint *prp = prpnode->GetData();
-        prpnodeX = prpnode;
-        pWP_dst = pWP_src;
-
-        delta_dist = 0.0;
-        delta_hdg = 0.0;
-        back_ic = next_ic;
-
-        DistanceBearingMercator( prp->m_lat, prp->m_lon, pWP_src->m_lat, pWP_src->m_lon, &delta_hdg,
-                &delta_dist );
-
-        if( ( delta_dist > ( leg_speed * 6.0 ) ) && !prp_OK ) {
-            int delta_inserts = floor( delta_dist / ( leg_speed * 4.0 ) );
-            delta_dist = delta_dist / ( delta_inserts + 1 );
-            double tlat = 0.0;
-            double tlon = 0.0;
-
-            while( delta_inserts-- ) {
-                ll_gc_ll( pWP_src->m_lat, pWP_src->m_lon, delta_hdg, delta_dist, &tlat, &tlon );
-                pWP_dst = new RoutePoint( tlat, tlon, icon, _T ( "" ), GPX_EMPTY_STRING );
-                route->AddPoint( pWP_dst );
-                pWP_dst->m_bShowName = false;
-                pSelect->AddSelectableRoutePoint( pWP_dst->m_lat, pWP_dst->m_lon, pWP_dst );
-
-                pSelect->AddSelectableRouteSegment( pWP_src->m_lat, pWP_src->m_lon, pWP_dst->m_lat,
-                        pWP_dst->m_lon, pWP_src, pWP_dst, route );
-
-                pWP_src = pWP_dst;
-            }
-            prpnodeX = prpnode;
-            pWP_dst = pWP_src;
-            next_ic = 0;
-            delta_dist = 0.0;
-            back_ic = next_ic;
-            prp_OK = prp;
-            isProminent = true;
-        } else {
-            isProminent = false;
-            if( delta_dist >= ( leg_speed * 4.0 ) ) isProminent = true;
-            if( !prp_OK ) prp_OK = prp;
-        }
-
-        while( prpnodeX ) {
-
-            RoutePoint *prpX = prpnodeX->GetData();
-            xte = GetXTE( pWP_src, prpX, prp );
-            if( isProminent || ( xte > g_TrackDeltaDistance ) ) {
-
-                pWP_dst = new RoutePoint( prp_OK->m_lat, prp_OK->m_lon, icon, _T ( "" ),
-                        GPX_EMPTY_STRING );
-
-                route->AddPoint( pWP_dst );
-                pWP_dst->m_bShowName = false;
-
-                pSelect->AddSelectableRoutePoint( pWP_dst->m_lat, pWP_dst->m_lon, pWP_dst );
-
-                pSelect->AddSelectableRouteSegment( pWP_src->m_lat, pWP_src->m_lon, pWP_dst->m_lat,
-                        pWP_dst->m_lon, pWP_src, pWP_dst, route );
-
-                pWP_src = pWP_dst;
-                next_ic = 0;
-                prpnodeX = NULL;
-                prp_OK = NULL;
-            }
-
-            if( prpnodeX ) prpnodeX = prpnodeX->GetPrevious();
-            if( back_ic-- <= 0 ) {
-                prpnodeX = NULL;
-            }
-        }
-
-        if( prp_OK ) {
-            prp_OK = prp;
-        }
-
-        DistanceBearingMercator( prp->m_lat, prp->m_lon, pWP_src->m_lat, pWP_src->m_lon, NULL,
-                &delta_dist );
-
-        if( !( ( delta_dist > ( g_TrackDeltaDistance ) ) && !prp_OK ) ) {
-            prpnode = prpnode->GetNext(); //RoutePoint
-            next_ic++;
-            ic++;
-        }
-        if( pprog ) pprog->Update( ( ic * 100 ) / nPoints );
-    }
-
-// add last point, if needed
-    if( delta_dist >= g_TrackDeltaDistance ) {
-        pWP_dst = new RoutePoint( pRoutePointList->GetLast()->GetData()->m_lat,
-                pRoutePointList->GetLast()->GetData()->m_lon, icon, _T ( "" ), GPX_EMPTY_STRING );
-        route->AddPoint( pWP_dst );
-
-        pWP_dst->m_bShowName = false;
-
-        pSelect->AddSelectableRoutePoint( pWP_dst->m_lat, pWP_dst->m_lon, pWP_dst );
-
-        pSelect->AddSelectableRouteSegment( pWP_src->m_lat, pWP_src->m_lon, pWP_dst->m_lat,
-                pWP_dst->m_lon, pWP_src, pWP_dst, route );
-    }
-    route->m_RouteNameString = m_RouteNameString;
-    route->m_RouteStartString = m_RouteStartString;
-    route->m_RouteEndString = m_RouteEndString;
-    route->m_bDeleteOnArrival = false;
-
-    return route;
-}
-
-void Track::DouglasPeuckerReducer( std::vector<RoutePoint*>& list, int from, int to, double delta ) {
-    list[from]->m_bIsActive = true;
-    list[to]->m_bIsActive = true;
-
-    int maxdistIndex = -1;
-    double maxdist = 0;
-
-    for( int i=from+1; i<to; i++ ) {
-
-        double dist = 1852.0 * GetXTE( list[from], list[to], list[i] );
-
-        if( dist > maxdist ) {
-            maxdist = dist;
-            maxdistIndex = i;
-        }
-    }
-
-    if( maxdist > delta ) {
-        DouglasPeuckerReducer( list, from, maxdistIndex, delta );
-        DouglasPeuckerReducer( list, maxdistIndex, to, delta );
-    }
-}
-
-int Track::Simplify( double maxDelta ) {
-    int reduction = 0;
-    wxRoutePointListNode *pointnode = pRoutePointList->GetFirst();
-    RoutePoint *routepoint;
-    std::vector<RoutePoint*> pointlist;
-
-    ::wxBeginBusyCursor();
-
-    while( pointnode ) {
-        routepoint = pointnode->GetData();
-        routepoint->m_bIsActive = false;
-        pointlist.push_back(routepoint);
-        pointnode = pointnode->GetNext();
-    }
-
-    DouglasPeuckerReducer( pointlist, 0, pointlist.size()-1, maxDelta );
-
-    pSelect->DeleteAllSelectableTrackSegments( this );
-    pRoutePointList->Clear();
-
-    for( size_t i=0; i<pointlist.size(); i++ ) {
-        if( pointlist[i]->m_bIsActive ) {
-            pointlist[i]->m_bIsActive = false;
-            pRoutePointList->Append( pointlist[i] );
-        } else {
-            delete pointlist[i];
-            reduction++;
-        }
-    }
-
-    SetnPoints();
-    pSelect->AddAllSelectableTrackSegments( this );
-
-    UpdateSegmentDistances();
-    ::wxEndBusyCursor();
-    return reduction;
-}
-
-double _distance2( vector2D& a, vector2D& b ) { return (a.x - b.x)*(a.x - b.x) + (a.y - b.y)*(a.y - b.y); }
-double _distance( vector2D& a, vector2D& b ) { return sqrt( _distance2( a, b ) ); }
-
-double Track::GetXTE( double fm1Lat, double fm1Lon, double fm2Lat, double fm2Lon, double toLat, double toLon  )
-{
-    vector2D v, w, p;
-
-    // First we get the cartesian coordinates to the line endpoints, using
-    // the current position as origo.
-
-    double brg1, dist1, brg2, dist2;
-    DistanceBearingMercator( toLat, toLon, fm1Lat, fm1Lon, &brg1, &dist1 );
-    w.x = dist1 * sin( brg1 * PI / 180. );
-    w.y = dist1 * cos( brg1 * PI / 180. );
-
-    DistanceBearingMercator( toLat, toLon, fm2Lat, fm2Lon, &brg2, &dist2 );
-    v.x = dist2 * sin( brg2 * PI / 180. );
-    v.y = dist2 * cos( brg2 * PI / 180. );
-
-    p.x = 0.0; p.y = 0.0;
-
-    const double lengthSquared = _distance2( v, w );
-    if ( lengthSquared == 0.0 ) {
-        // v == w case
-        return _distance( p, v );
-    }
-
-    // Consider the line extending the segment, parameterized as v + t (w - v).
-    // We find projection of origo onto the line.
-    // It falls where t = [(p-v) . (w-v)] / |w-v|^2
-
-    vector2D a = p - v;
-    vector2D b = w - v;
-
-    double t = vDotProduct( &a, &b ) / lengthSquared;
-
-    if (t < 0.0) return _distance(p, v);       // Beyond the 'v' end of the segment
-    else if (t > 1.0) return _distance(p, w);  // Beyond the 'w' end of the segment
-    vector2D projection = v + t * (w - v);     // Projection falls on the segment
-    return _distance(p, projection);
-}
-
-double Track::GetXTE( RoutePoint *fm1, RoutePoint *fm2, RoutePoint *to )
-{
-    if( !fm1 || !fm2 || !to ) return 0.0;
-    if( fm1 == to ) return 0.0;
-    if( fm2 == to ) return 0.0;
-    return GetXTE( fm1->m_lat, fm1->m_lon, fm2->m_lat, fm2->m_lon, to->m_lat, to->m_lon );
-;
-}
 
 // Layer helper function
 
@@ -1210,6 +528,9 @@ int MyConfig::LoadMyConfig()
 
     Read( _T ( "NCacheLimit" ), &g_nCacheLimit, 0 );
 
+    Read( _T ( "InlandEcdis" ), &g_bInlandEcdis, 0 );// First read if in iENC mode as this will override some config settings
+
+    Read( _T( "SpaceDropMark" ), &g_bSpaceDropMark, 0 );
     int mem_limit;
     Read( _T ( "MEMCacheLimit" ), &mem_limit, 0 );
 
@@ -1245,6 +566,8 @@ int MyConfig::LoadMyConfig()
     Read( _T ( "AutoHideToolbar" ), &g_bAutoHideToolbar, 0 );
     Read( _T ( "AutoHideToolbarSecs" ), &g_nAutoHideToolbar, 0 );
 
+    Read( _T ( "UseSimplifiedScalebar" ), &g_bsimplifiedScalebar, 0 );
+
     int size_mm;
     Read( _T ( "DisplaySizeMM" ), &size_mm, -1 );
     g_config_display_size_mm = size_mm;
@@ -1263,7 +586,12 @@ int MyConfig::LoadMyConfig()
     g_COGFilterSec = wxMax(g_COGFilterSec, 1);
     g_SOGFilterSec = g_COGFilterSec;
 
+    Read( _T ( "ShowTrue" ), &g_bShowTrue, 1 );
     Read( _T ( "ShowMag" ), &g_bShowMag, 0 );
+
+    if(!g_bShowTrue && !g_bShowMag)
+        g_bShowTrue = true;
+
     g_UserVar = 0.0;
     wxString umv;
     Read( _T ( "UserMagVariation" ), &umv );
@@ -1289,7 +617,8 @@ int MyConfig::LoadMyConfig()
     Read( _T ( "CourseUpMode" ), &g_bCourseUp, 0 );
     Read( _T ( "COGUPAvgSeconds" ), &g_COGAvgSec, 15 );
     g_COGAvgSec = wxMin(g_COGAvgSec, MAX_COG_AVERAGE_SECONDS);        // Bound the array size
-    Read( _T ( "LookAheadMode" ), &g_bLookAhead, 0 );
+    if( g_bInlandEcdis ) g_bLookAhead=1;
+        else Read( _T ( "LookAheadMode" ), &g_bLookAhead, 0 );
     Read( _T ( "SkewToNorthUp" ), &g_bskew_comp, 0 );
     Read( _T ( "OpenGL" ), &g_bopengl, 0 );
     if ( g_bdisable_opengl )
@@ -1323,10 +652,16 @@ int MyConfig::LoadMyConfig()
 #endif
     Read( _T ( "SmoothPanZoom" ), &g_bsmoothpanzoom, 0 );
 
-    Read( _T ( "ToolbarX"), &g_toolbar_x, 0 );
-    Read( _T ( "ToolbarY" ), &g_toolbar_y, 0 );
-    Read( _T ( "ToolbarOrient" ), &g_toolbar_orient, wxTB_HORIZONTAL );
+    Read( _T ( "ToolbarX"), &g_maintoolbar_x, 0 );
+    Read( _T ( "ToolbarY" ), &g_maintoolbar_y, 0 );
+    Read( _T ( "ToolbarOrient" ), &g_maintoolbar_orient, wxTB_HORIZONTAL );
     Read( _T ( "ToolbarConfig" ), &g_toolbarConfig );
+
+    Read( _T ( "iENCToolbarX"), &g_iENCToolbarPosX, -1 );
+    Read( _T ( "iENCToolbarY"), &g_iENCToolbarPosY, -1 );
+
+    Read( _T ( "iENCToolbarX"), &g_iENCToolbarPosX, -1 );
+    Read( _T ( "iENCToolbarY"), &g_iENCToolbarPosY, -1 );
 
     Read( _T ( "AnchorWatch1GUID" ), &g_AW1GUID, _T("") );
     Read( _T ( "AnchorWatch2GUID" ), &g_AW2GUID, _T("") );
@@ -1342,6 +677,10 @@ int MyConfig::LoadMyConfig()
     Read( _T ( "ZoomDetailFactor" ), &g_chart_zoom_modifier, 0 );
     g_chart_zoom_modifier = wxMin(g_chart_zoom_modifier,5);
     g_chart_zoom_modifier = wxMax(g_chart_zoom_modifier,-5);
+
+    Read( _T ( "ZoomDetailFactorVector" ), &g_chart_zoom_modifier_vector, 0 );
+    g_chart_zoom_modifier_vector = wxMin(g_chart_zoom_modifier_vector,5);
+    g_chart_zoom_modifier_vector = wxMax(g_chart_zoom_modifier_vector,-5);
 
     Read( _T ( "FogOnOverzoom" ), &g_fog_overzoom, 1 );
     Read( _T ( "OverzoomVectorScale" ), &g_oz_vector_scale, 1 );
@@ -1390,6 +729,7 @@ int MyConfig::LoadMyConfig()
     Read( _T ( "ShowChartBar" ), &g_bShowChartBar, 1 );
 
     Read( _T ( "SDMMFormat" ), &g_iSDMMFormat, 0 ); //0 = "Degrees, Decimal minutes"), 1 = "Decimal degrees", 2 = "Degrees,Minutes, Seconds"
+
     Read( _T ( "DistanceFormat" ), &g_iDistanceFormat, 0 ); //0 = "Nautical miles"), 1 = "Statute miles", 2 = "Kilometers", 3 = "Meters"
     Read( _T ( "SpeedFormat" ), &g_iSpeedFormat, 0 ); //0 = "kts"), 1 = "mph", 2 = "km/h", 3 = "m/s"
 
@@ -1431,6 +771,7 @@ int MyConfig::LoadMyConfig()
 
     g_locale = _T("en_US");
     Read( _T ( "Locale" ), &g_locale );
+    Read( _T ( "LocaleOverride" ), &g_localeOverride );
 
     //We allow 0-99 backups ov navobj.xml
     Read( _T ( "KeepNavobjBackups" ), &g_navobjbackups, 5 );
@@ -1466,6 +807,11 @@ int MyConfig::LoadMyConfig()
     Read( _T ( "ClientPosY" ), &g_lastClientRecty, 0 );
     Read( _T ( "ClientSzX" ), &g_lastClientRectw, 0 );
     Read( _T ( "ClientSzY" ), &g_lastClientRecth, 0 );
+
+    Read( _T ( "S52_DEPTH_UNIT_SHOW" ), &read_int, 1 );   // default is metres
+    read_int = wxMax(read_int, 0);                      // qualify value
+    read_int = wxMin(read_int, 2);
+    g_nDepthUnitDisplay = read_int;
 
     //    AIS
     wxString s;
@@ -1571,6 +917,7 @@ int MyConfig::LoadMyConfig()
     Read( _T ( "S57QueryDialogSizeX" ), &g_S57_dialog_sx, 400 );
     Read( _T ( "S57QueryDialogSizeY" ), &g_S57_dialog_sy, 400 );
 
+
     wxString strpres( _T ( "PresentationLibraryData" ) );
     wxString valpres;
     SetPath( _T ( "/Directories" ) );
@@ -1578,22 +925,6 @@ int MyConfig::LoadMyConfig()
     g_UserPresLibData = valpres;
 
 #ifdef USE_S57
-    /*
-     wxString strd ( _T ( "S57DataLocation" ) );
-     SetPath ( _T ( "/Directories" ) );
-     Read ( strd, &val );              // Get the Directory name
-
-
-     wxString dirname ( val );
-     if ( !dirname.IsEmpty() )
-     {
-     if ( g_pcsv_locn->IsEmpty() )   // on second pass, don't overwrite
-     {
-     g_pcsv_locn->Clear();
-     g_pcsv_locn->Append ( val );
-     }
-     }
-     */
     wxString strs( _T ( "SENCFileLocation" ) );
     SetPath( _T ( "/Directories" ) );
     wxString vals;
@@ -1602,6 +933,8 @@ int MyConfig::LoadMyConfig()
     g_SENCPrefix = vals;
 
 #endif
+
+    SwitchInlandEcdisMode( g_bInlandEcdis );
 
     SetPath( _T ( "/Directories" ) );
     wxString vald;
@@ -1620,10 +953,12 @@ int MyConfig::LoadMyConfig()
     Read( _T ( "TCDataDir" ), &g_TCData_Dir );           // Get the Directory name
 
     SetPath( _T ( "/Settings/GlobalState" ) );
-    Read( _T ( "nColorScheme" ), &read_int, 0 );
-    global_color_scheme = (ColorScheme) read_int;
 
-
+    if ( g_bInlandEcdis ) global_color_scheme = GLOBAL_COLOR_SCHEME_DUSK; //startup in duskmode if inlandEcdis
+    else{
+        Read( _T ( "nColorScheme" ), &read_int, 0 );
+        global_color_scheme = (ColorScheme) read_int;
+    }
     SetPath( _T ( "/Settings/NMEADataSource" ) );
 
     wxString connectionconfigs;
@@ -1932,6 +1267,9 @@ int MyConfig::LoadMyConfig()
     //  Routes
     pRouteList = new RouteList;
 
+    // Tracks
+    pTrackList = new TrackList;
+
     //    Groups
     LoadConfigGroups( g_pGroupArray );
 
@@ -2004,6 +1342,8 @@ int MyConfig::LoadMyConfig()
     Read( _T ( "RouteLineWidth" ), &g_route_line_width, 2 );
     Read( _T ( "TrackLineWidth" ), &g_track_line_width, 2 );
     Read( _T ( "CurrentArrowScale" ), &g_current_arrow_scale, 100 );
+    Read( _T ( "TideRectangleScale" ), &g_tide_rectangle_scale, 100 );
+    Read( _T ( "TideCurrentWindowScale" ), &g_tcwin_scale, 100 );
     Read( _T ( "DefaultWPIcon" ), &g_default_wp_icon, _T("triangle") );
 
     SetPath( _T ( "/MMSIProperties" ) );
@@ -2098,6 +1438,7 @@ void MyConfig::LoadS57Config()
     read_int = wxMax(read_int, 0);                      // qualify value
     read_int = wxMin(read_int, 2);
     ps52plib->m_nDepthUnitDisplay = read_int;
+    g_nDepthUnitDisplay = read_int;
 
 //    S57 Object Class Visibility
 
@@ -2324,99 +1665,69 @@ bool MyConfig::LoadChartDirArray( ArrayOfCDI &ChartDirArray )
     return true;
 }
 
-bool MyConfig::AddNewRoute( Route *pr, int crm )
+void MyConfig::AddNewRoute( Route *pr )
 {
-    if( pr->m_bIsInLayer )
-        return true;
-
-
-    if( !m_bSkipChangeSetUpdate ) {
-        if( pr->m_bIsTrack )
-            m_pNavObjectChangesSet->AddTrack( (Track *)pr, "add" );
-        else
-            m_pNavObjectChangesSet->AddRoute( pr, "add" );
-    }
-
-    return true;
+//    if( pr->m_bIsInLayer )
+//        return true;
+    if( !m_bSkipChangeSetUpdate )
+        m_pNavObjectChangesSet->AddRoute( pr, "add" );
 }
 
-bool MyConfig::UpdateRoute( Route *pr )
+void MyConfig::UpdateRoute( Route *pr )
 {
-    if( pr->m_bIsInLayer ) return true;
-
-
-    if( !m_bSkipChangeSetUpdate ) {
-        if( pr->m_bIsTrack )
-            m_pNavObjectChangesSet->AddTrack( (Track *)pr, "update" );
-        else
+//    if( pr->m_bIsInLayer ) return true;
+    if( !m_bSkipChangeSetUpdate )
             m_pNavObjectChangesSet->AddRoute( pr, "update" );
-
-    }
-
-    return true;
 }
 
-bool MyConfig::DeleteConfigRoute( Route *pr )
+void MyConfig::DeleteConfigRoute( Route *pr )
 {
-    if( pr->m_bIsInLayer )
-        return true;
-
-    if( !m_bSkipChangeSetUpdate ) {
-        if( !pr->m_bIsTrack )
-            m_pNavObjectChangesSet->AddRoute( (Track *)pr, "delete" );
-        else
-            m_pNavObjectChangesSet->AddTrack( (Track *)pr, "delete" );
-
-    }
-    return true;
+//    if( pr->m_bIsInLayer )
+//        return true;
+    if( !m_bSkipChangeSetUpdate )
+            m_pNavObjectChangesSet->AddRoute( pr, "delete" );
 }
 
-bool MyConfig::AddNewWayPoint( RoutePoint *pWP, int crm )
+void MyConfig::AddNewTrack( Track *pt )
 {
-    if( pWP->m_bIsInLayer )
-        return true;
+    if( !pt->m_bIsInLayer && !m_bSkipChangeSetUpdate )
+        m_pNavObjectChangesSet->AddTrack( pt, "add" );
+}
 
-    if(!pWP->m_bIsolatedMark)
-        return true;
+void MyConfig::UpdateTrack( Track *pt )
+{
+    if( pt->m_bIsInLayer && !m_bSkipChangeSetUpdate )
+        m_pNavObjectChangesSet->AddTrack( pt, "update" );
+}
 
-    if( !m_bSkipChangeSetUpdate ) {
+void MyConfig::DeleteConfigTrack( Track *pt )
+{
+    if( !pt->m_bIsInLayer && !m_bSkipChangeSetUpdate )
+        m_pNavObjectChangesSet->AddTrack( pt, "delete" );
+}
+
+void MyConfig::AddNewWayPoint( RoutePoint *pWP, int crm )
+{
+    if( !pWP->m_bIsInLayer && pWP->m_bIsolatedMark && !m_bSkipChangeSetUpdate )
         m_pNavObjectChangesSet->AddWP( pWP, "add" );
-    }
-
-    return true;
 }
 
-bool MyConfig::UpdateWayPoint( RoutePoint *pWP )
+void MyConfig::UpdateWayPoint( RoutePoint *pWP )
 {
-    if( pWP->m_bIsInLayer )
-        return true;
-
-    if( !m_bSkipChangeSetUpdate ) {
+    if( !pWP->m_bIsInLayer && !m_bSkipChangeSetUpdate )
         m_pNavObjectChangesSet->AddWP( pWP, "update" );
-    }
-
-    return true;
 }
 
-bool MyConfig::DeleteWayPoint( RoutePoint *pWP )
+void MyConfig::DeleteWayPoint( RoutePoint *pWP )
 {
-    if( pWP->m_bIsInLayer )
-        return true;
-
-    if( !m_bSkipChangeSetUpdate ) {
+    if( !pWP->m_bIsInLayer && !m_bSkipChangeSetUpdate )
         m_pNavObjectChangesSet->AddWP( pWP, "delete" );
-    }
-
-    return true;
 }
 
-bool MyConfig::AddNewTrackPoint( RoutePoint *pWP, const wxString& parent_GUID )
+void MyConfig::AddNewTrackPoint( TrackPoint *pWP, const wxString& parent_GUID )
 {
-    if( !m_bSkipChangeSetUpdate ) {
+    if( !m_bSkipChangeSetUpdate )
         m_pNavObjectChangesSet->AddTrackPoint( pWP, "add", parent_GUID );
-    }
-
-    return true;
 }
 
 bool MyConfig::UpdateChartDirs( ArrayOfCDI& dir_array )
@@ -2551,14 +1862,15 @@ void MyConfig::UpdateSettings()
     wxLogNull logNo;
 #endif
 
+
 //    Global options and settings
     SetPath( _T ( "/Settings" ) );
 
     Write( _T ( "ConfigVersionString" ), g_config_version_string );
     Write( _T ( "NavMessageShown" ), n_NavMessageShown );
-
+    Write( _T ( "InlandEcdis" ), g_bInlandEcdis );
     Write( _T ( "UIexpert" ), g_bUIexpert );
-
+    Write( _T( "SpaceDropMark" ), g_bSpaceDropMark );
     Write( _T ( "UIStyle" ), g_StyleManager->GetStyleNextInvocation() );
     Write( _T ( "ChartNotRenderScaleFactor" ), g_ChartNotRenderScaleFactor );
 
@@ -2578,14 +1890,11 @@ void MyConfig::UpdateSettings()
     Write( _T ( "TransparentToolbar" ), g_bTransparentToolbar );
     Write( _T ( "PermanentMOBIcon" ), g_bPermanentMOBIcon );
     Write( _T ( "ShowLayers" ), g_bShowLayers );
-    Write( _T ( "ShowDepthUnits" ), g_bShowDepthUnits );
     Write( _T ( "AutoAnchorDrop" ), g_bAutoAnchorMark );
     Write( _T ( "ShowChartOutlines" ), g_bShowOutlines );
     Write( _T ( "ShowActiveRouteTotal" ), g_bShowRouteTotal );
     Write( _T ( "ShowActiveRouteHighway" ), g_bShowActiveRouteHighway );
     Write( _T ( "SDMMFormat" ), g_iSDMMFormat );
-    Write( _T ( "DistanceFormat" ), g_iDistanceFormat );
-    Write( _T ( "SpeedFormat" ), g_iSpeedFormat );
     Write( _T ( "MostRecentGPSUploadConnection" ), g_uploadConnection );
     Write( _T ( "ShowChartBar" ), g_bShowChartBar );
 
@@ -2595,6 +1904,7 @@ void MyConfig::UpdateSettings()
     Write( _T ( "FilterNMEA_Avg" ), g_bfilter_cogsog );
     Write( _T ( "FilterNMEA_Sec" ), g_COGFilterSec );
 
+    Write( _T ( "ShowTrue" ), g_bShowTrue );
     Write( _T ( "ShowMag" ), g_bShowMag );
     Write( _T ( "UserMagVariation" ), wxString::Format( _T("%.2f"), g_UserVar ) );
 
@@ -2609,6 +1919,7 @@ void MyConfig::UpdateSettings()
     Write( _T ( "ShowFPS" ), g_bShowFPS );
 
     Write( _T ( "ZoomDetailFactor" ), g_chart_zoom_modifier );
+    Write( _T ( "ZoomDetailFactorVector" ), g_chart_zoom_modifier_vector );
 
     Write( _T ( "FogOnOverzoom" ), g_fog_overzoom );
     Write( _T ( "OverzoomVectorScale" ), g_oz_vector_scale );
@@ -2630,7 +1941,7 @@ void MyConfig::UpdateSettings()
     Write( _T ( "UseCM93Charts" ), g_bUseCM93 );
 
     Write( _T ( "CourseUpMode" ), g_bCourseUp );
-    Write( _T ( "LookAheadMode" ), g_bLookAhead );
+    if (!g_bInlandEcdis ) Write( _T ( "LookAheadMode" ), g_bLookAhead );
     Write( _T ( "COGUPAvgSeconds" ), g_COGAvgSec );
     Write( _T ( "UseMagAPB" ), g_bMagneticAPB );
 
@@ -2678,11 +1989,19 @@ void MyConfig::UpdateSettings()
     Write( _T ( "AnchorWatch1GUID" ), g_AW1GUID );
     Write( _T ( "AnchorWatch2GUID" ), g_AW2GUID );
 
-    Write( _T ( "ToolbarX" ), g_toolbar_x );
-    Write( _T ( "ToolbarY" ), g_toolbar_y );
-    Write( _T ( "ToolbarOrient" ), g_toolbar_orient );
-    Write( _T ( "ToolbarConfig" ), g_toolbarConfig );
+    Write( _T ( "ToolbarX" ), g_maintoolbar_x );
+    Write( _T ( "ToolbarY" ), g_maintoolbar_y );
+    Write( _T ( "ToolbarOrient" ), g_maintoolbar_orient );
 
+    Write( _T ( "iENCToolbarX" ), g_iENCToolbarPosX );
+    Write( _T ( "iENCToolbarY" ), g_iENCToolbarPosY );
+
+    if ( !g_bInlandEcdis ){
+        Write( _T ( "ToolbarConfig" ), g_toolbarConfig );
+        Write( _T ( "DistanceFormat" ), g_iDistanceFormat );
+        Write( _T ( "SpeedFormat" ), g_iSpeedFormat );
+        Write( _T ( "ShowDepthUnits" ), g_bShowDepthUnits );
+    }
     Write( _T ( "GPSIdent" ), g_GPS_Ident );
     Write( _T ( "UseGarminHostUpload" ), g_bGarminHostUpload );
 
@@ -2712,6 +2031,7 @@ void MyConfig::UpdateSettings()
     Write( _T ( "InvisibleLayers" ), invis );
 
     Write( _T ( "Locale" ), g_locale );
+    Write( _T ( "LocaleOverride" ), g_localeOverride );
 
     Write( _T ( "KeepNavobjBackups" ), g_navobjbackups );
     Write( _T ( "LegacyInputCOMPortFilterBehaviour" ), g_b_legacy_input_filter_behaviour );
@@ -2761,7 +2081,7 @@ void MyConfig::UpdateSettings()
     //    Various Options
     SetPath( _T ( "/Settings/GlobalState" ) );
     if( cc1 ) Write( _T ( "bFollow" ), cc1->m_bFollow );
-    Write( _T ( "nColorScheme" ), (int) gFrame->GetColorScheme() );
+    if ( !g_bInlandEcdis ) Write( _T ( "nColorScheme" ), (int) gFrame->GetColorScheme() );
 
     Write( _T ( "FrameWinX" ), g_nframewin_x );
     Write( _T ( "FrameWinY" ), g_nframewin_y );
@@ -2773,6 +2093,9 @@ void MyConfig::UpdateSettings()
     Write( _T ( "ClientPosY" ), g_lastClientRecty );
     Write( _T ( "ClientSzX" ), g_lastClientRectw );
     Write( _T ( "ClientSzY" ), g_lastClientRecth );
+
+    Write( _T ( "S52_DEPTH_UNIT_SHOW" ), g_nDepthUnitDisplay );
+
 
     //    AIS
     SetPath( _T ( "/Settings/AIS" ) );
@@ -2842,7 +2165,7 @@ void MyConfig::UpdateSettings()
     if( ps52plib ) {
         Write( _T ( "bShowS57Text" ), ps52plib->GetShowS57Text() );
         Write( _T ( "bShowS57ImportantTextOnly" ), ps52plib->GetShowS57ImportantTextOnly() );
-        Write( _T ( "nDisplayCategory" ), (long) ps52plib->GetDisplayCategory() );
+        if ( !g_bInlandEcdis ) Write( _T ( "nDisplayCategory" ), (long) ps52plib->GetDisplayCategory() );
         Write( _T ( "nSymbolStyle" ), (int) ps52plib->m_nSymbolStyle );
         Write( _T ( "nBoundaryStyle" ), (int) ps52plib->m_nBoundaryStyle );
 
@@ -2966,6 +2289,8 @@ void MyConfig::UpdateSettings()
     Write( _T ( "RouteLineWidth" ), g_route_line_width );
     Write( _T ( "TrackLineWidth" ), g_track_line_width );
     Write( _T ( "CurrentArrowScale" ), g_current_arrow_scale );
+    Write( _T ( "TideRectangleScale" ), g_tide_rectangle_scale );
+    Write( _T ( "TideCurrentWindowScale" ), g_tcwin_scale );
     Write( _T ( "DefaultWPIcon" ), g_default_wp_icon );
 
     DeleteGroup(_T ( "/MMSIProperties" ));
@@ -3080,14 +2405,50 @@ bool MyConfig::ExportGPXRoutes( wxWindow* parent, RouteList *pRoutes, const wxSt
         m_gpx_path = fn.GetPath();
         fn.SetExt(_T("gpx"));
 
+#ifndef __WXMAC__
         if( wxFileExists( fn.GetFullPath() ) ) {
             int answer = OCPNMessageBox( NULL, _("Overwrite existing file?"), _T("Confirm"),
                     wxICON_QUESTION | wxYES_NO | wxCANCEL );
             if( answer != wxID_YES ) return false;
         }
+#endif
 
         NavObjectCollection1 *pgpx = new NavObjectCollection1;
         pgpx->AddGPXRoutesList( pRoutes );
+        pgpx->SaveFile(fn.GetFullPath());
+        delete pgpx;
+
+        return true;
+    } else
+        return false;
+}
+
+bool MyConfig::ExportGPXTracks( wxWindow* parent, TrackList *pTracks, const wxString suggestedName )
+{
+    wxString path;
+
+    int response = g_Platform->DoFileSelectorDialog( parent, &path,
+                                                     _( "Export GPX file" ),
+                                                     m_gpx_path,
+                                                     suggestedName,
+                                                     wxT ( "*.gpx" )
+    );
+
+    if( response == wxID_OK ) {
+        wxFileName fn(path);
+        m_gpx_path = fn.GetPath();
+        fn.SetExt(_T("gpx"));
+
+#ifndef __WXMAC__
+        if( wxFileExists( fn.GetFullPath() ) ) {
+            int answer = OCPNMessageBox( NULL, _("Overwrite existing file?"), _T("Confirm"),
+                    wxICON_QUESTION | wxYES_NO | wxCANCEL );
+            if( answer != wxID_YES ) return false;
+        }
+#endif
+
+        NavObjectCollection1 *pgpx = new NavObjectCollection1;
+        pgpx->AddGPXTracksList( pTracks );
         pgpx->SaveFile(fn.GetFullPath());
         delete pgpx;
 
@@ -3113,11 +2474,13 @@ bool MyConfig::ExportGPXWaypoints( wxWindow* parent, RoutePointList *pRoutePoint
         m_gpx_path = fn.GetPath();
         fn.SetExt(_T("gpx"));
 
+#ifndef __WXMAC__
         if( wxFileExists( fn.GetFullPath() ) ) {
             int answer = OCPNMessageBox(NULL,  _("Overwrite existing file?"), _T("Confirm"),
                     wxICON_QUESTION | wxYES_NO | wxCANCEL );
             if( answer != wxID_YES ) return false;
         }
+#endif
 
         NavObjectCollection1 *pgpx = new NavObjectCollection1;
         pgpx->AddGPXPointsList( pRoutePoints );
@@ -3148,11 +2511,13 @@ void MyConfig::ExportGPX( wxWindow* parent, bool bviz_only, bool blayer )
         m_gpx_path = fn.GetPath();
         fn.SetExt(_T("gpx"));
 
+#ifndef __WXMAC__
         if( wxFileExists( fn.GetFullPath() ) ) {
             int answer = OCPNMessageBox( NULL, _("Overwrite existing file?"), _T("Confirm"),
                     wxICON_QUESTION | wxYES_NO | wxCANCEL );
             if( answer != wxID_YES ) return;
         }
+#endif
 
         ::wxBeginBusyCursor();
 
@@ -3210,14 +2575,29 @@ void MyConfig::ExportGPX( wxWindow* parent, bool bviz_only, bool blayer )
             if(  pRoute->m_bIsInLayer && !blayer )
                 b_add = false;
 
-            if( b_add ) {
-                if( !pRoute->m_bIsTrack )
-                    pgpx->AddGPXRoute( pRoute ); //gpxroot->AddRoute( CreateGPXRte( pRoute ) );
-                else
-                    pgpx->AddGPXTrack( (Track *)pRoute  );
-                }
+            if( b_add )
+                pgpx->AddGPXRoute( pRoute );
+
             node1 = node1->GetNext();
         }
+
+        wxTrackListNode *node2 = pTrackList->GetFirst();
+        while( node2 ) {
+            Track *pTrack = node2->GetData();
+
+            bool b_add = true;
+
+            if( bviz_only && !pTrack->IsVisible() )
+                b_add = false;
+
+            if(  pTrack->m_bIsInLayer && !blayer )
+                b_add = false;
+
+            if( b_add )
+                    pgpx->AddGPXTrack( pTrack );
+            node2 = node2->GetNext();
+        }
+
 
         pgpx->SaveFile( fn.GetFullPath() );
         delete pgpx;
@@ -3346,6 +2726,41 @@ void MyConfig::UI_ImportGPX( wxWindow* parent, bool islayer, wxString dirpath, b
 }
 
 //-------------------------------------------------------------------------
+//           Static Routine Switch to Inland Ecdis Mode
+//-------------------------------------------------------------------------
+void SwitchInlandEcdisMode( bool Switch )
+{
+    if ( Switch ){
+        wxLogMessage( _T("Switch InlandEcdis mode On") );
+        LoadS57();
+        //Overule some sewttings to comply with InlandEcdis
+        g_toolbarConfig = _T ( ".....XXXX.X...XX.XXXXXXXXXXXX" );
+        g_iDistanceFormat = 2; //0 = "Nautical miles"), 1 = "Statute miles", 2 = "Kilometers", 3 = "Meters"
+        g_iSpeedFormat =2; //0 = "kts"), 1 = "mph", 2 = "km/h", 3 = "m/s"
+        if ( ps52plib ) ps52plib->SetDisplayCategory( STANDARD );
+        g_bDrawAISSize = false;
+        if (gFrame) gFrame->RequestNewToolbar(true);
+    }
+    else{
+        wxLogMessage( _T("Switch InlandEcdis mode Off") );
+        //reread the settings overruled by inlandEcdis
+        if (pConfig){
+            pConfig->SetPath( _T ( "/Settings" ) );
+            pConfig->Read( _T ( "ToolbarConfig" ), &g_toolbarConfig );
+            pConfig->Read( _T ( "DistanceFormat" ), &g_iDistanceFormat );
+            pConfig->Read( _T ( "SpeedFormat" ), &g_iSpeedFormat );
+            pConfig->Read( _T ( "ShowDepthUnits" ), &g_bShowDepthUnits, 1 );
+            int read_int;
+            pConfig->Read( _T ( "nDisplayCategory" ), &read_int, (enum _DisCat) STANDARD );
+            if ( ps52plib ) ps52plib->SetDisplayCategory((enum _DisCat) read_int );
+            pConfig->SetPath( _T ( "/Settings/AIS" ) );
+            pConfig->Read( _T ( "bDrawAISSize" ), &g_bDrawAISSize );
+        }
+        if (gFrame) gFrame->RequestNewToolbar(true);
+    }
+}
+
+//-------------------------------------------------------------------------
 //
 //          Static GPX Support Routines
 //
@@ -3438,14 +2853,28 @@ Route *RouteExists( Route * pTentRoute )
     while( route_node ) {
         Route *proute = route_node->GetData();
 
-        if( proute->IsEqualTo( pTentRoute ) ) {
-            if( !proute->m_bIsTrack ) return proute;
-        }
+        if( proute->IsEqualTo( pTentRoute ) )
+            return proute;
 
         route_node = route_node->GetNext();       // next route
     }
     return NULL;
 }
+
+Track *TrackExists( const wxString& guid )
+{
+    wxTrackListNode *track_node = pTrackList->GetFirst();
+
+    while( track_node ) {
+        Track *ptrack = track_node->GetData();
+
+        if( guid == ptrack->m_GUID ) return ptrack;
+
+        track_node = track_node->GetNext();
+    }
+    return NULL;
+}
+
 
 
 // This function formats the input date/time into a valid GPX ISO 8601
@@ -3552,7 +2981,6 @@ const wxChar *ParseGPXDateTime( wxDateTime &dt, const wxChar *datetime )
 #include <wx/fontdlg.h>
 #include <wx/fontenum.h>
 #include "wx/encinfo.h"
-#include "wx/fontutil.h"
 
 #ifdef __WXX11__
 #include "/usr/X11R6/include/X11/Xlib.h"
@@ -4411,6 +3839,9 @@ double fromUsrDistance( double usr_distance, int unit )
         case DISTANCE_M:
             ret = usr_distance / 1852;
             break;
+        case DISTANCE_FT:
+            ret = usr_distance / 6076.12;
+            break;
     }
     return ret;
 }
@@ -4793,73 +4224,4 @@ void AlphaBlending( ocpnDC &dc, int x, int y, int size_x, int size_y, float radi
         glDisable( GL_BLEND );
 #endif
     }
-}
-
-
-
-//      CRC calculation for a byte buffer
-
-static unsigned int crc_32_tab[] = { /* CRC polynomial 0xedb88320 */
-0x00000000, 0x77073096, 0xee0e612c, 0x990951ba, 0x076dc419, 0x706af48f,
-0xe963a535, 0x9e6495a3, 0x0edb8832, 0x79dcb8a4, 0xe0d5e91e, 0x97d2d988,
-0x09b64c2b, 0x7eb17cbd, 0xe7b82d07, 0x90bf1d91, 0x1db71064, 0x6ab020f2,
-0xf3b97148, 0x84be41de, 0x1adad47d, 0x6ddde4eb, 0xf4d4b551, 0x83d385c7,
-0x136c9856, 0x646ba8c0, 0xfd62f97a, 0x8a65c9ec, 0x14015c4f, 0x63066cd9,
-0xfa0f3d63, 0x8d080df5, 0x3b6e20c8, 0x4c69105e, 0xd56041e4, 0xa2677172,
-0x3c03e4d1, 0x4b04d447, 0xd20d85fd, 0xa50ab56b, 0x35b5a8fa, 0x42b2986c,
-0xdbbbc9d6, 0xacbcf940, 0x32d86ce3, 0x45df5c75, 0xdcd60dcf, 0xabd13d59,
-0x26d930ac, 0x51de003a, 0xc8d75180, 0xbfd06116, 0x21b4f4b5, 0x56b3c423,
-0xcfba9599, 0xb8bda50f, 0x2802b89e, 0x5f058808, 0xc60cd9b2, 0xb10be924,
-0x2f6f7c87, 0x58684c11, 0xc1611dab, 0xb6662d3d, 0x76dc4190, 0x01db7106,
-0x98d220bc, 0xefd5102a, 0x71b18589, 0x06b6b51f, 0x9fbfe4a5, 0xe8b8d433,
-0x7807c9a2, 0x0f00f934, 0x9609a88e, 0xe10e9818, 0x7f6a0dbb, 0x086d3d2d,
-0x91646c97, 0xe6635c01, 0x6b6b51f4, 0x1c6c6162, 0x856530d8, 0xf262004e,
-0x6c0695ed, 0x1b01a57b, 0x8208f4c1, 0xf50fc457, 0x65b0d9c6, 0x12b7e950,
-0x8bbeb8ea, 0xfcb9887c, 0x62dd1ddf, 0x15da2d49, 0x8cd37cf3, 0xfbd44c65,
-0x4db26158, 0x3ab551ce, 0xa3bc0074, 0xd4bb30e2, 0x4adfa541, 0x3dd895d7,
-0xa4d1c46d, 0xd3d6f4fb, 0x4369e96a, 0x346ed9fc, 0xad678846, 0xda60b8d0,
-0x44042d73, 0x33031de5, 0xaa0a4c5f, 0xdd0d7cc9, 0x5005713c, 0x270241aa,
-0xbe0b1010, 0xc90c2086, 0x5768b525, 0x206f85b3, 0xb966d409, 0xce61e49f,
-0x5edef90e, 0x29d9c998, 0xb0d09822, 0xc7d7a8b4, 0x59b33d17, 0x2eb40d81,
-0xb7bd5c3b, 0xc0ba6cad, 0xedb88320, 0x9abfb3b6, 0x03b6e20c, 0x74b1d29a,
-0xead54739, 0x9dd277af, 0x04db2615, 0x73dc1683, 0xe3630b12, 0x94643b84,
-0x0d6d6a3e, 0x7a6a5aa8, 0xe40ecf0b, 0x9309ff9d, 0x0a00ae27, 0x7d079eb1,
-0xf00f9344, 0x8708a3d2, 0x1e01f268, 0x6906c2fe, 0xf762575d, 0x806567cb,
-0x196c3671, 0x6e6b06e7, 0xfed41b76, 0x89d32be0, 0x10da7a5a, 0x67dd4acc,
-0xf9b9df6f, 0x8ebeeff9, 0x17b7be43, 0x60b08ed5, 0xd6d6a3e8, 0xa1d1937e,
-0x38d8c2c4, 0x4fdff252, 0xd1bb67f1, 0xa6bc5767, 0x3fb506dd, 0x48b2364b,
-0xd80d2bda, 0xaf0a1b4c, 0x36034af6, 0x41047a60, 0xdf60efc3, 0xa867df55,
-0x316e8eef, 0x4669be79, 0xcb61b38c, 0xbc66831a, 0x256fd2a0, 0x5268e236,
-0xcc0c7795, 0xbb0b4703, 0x220216b9, 0x5505262f, 0xc5ba3bbe, 0xb2bd0b28,
-0x2bb45a92, 0x5cb36a04, 0xc2d7ffa7, 0xb5d0cf31, 0x2cd99e8b, 0x5bdeae1d,
-0x9b64c2b0, 0xec63f226, 0x756aa39c, 0x026d930a, 0x9c0906a9, 0xeb0e363f,
-0x72076785, 0x05005713, 0x95bf4a82, 0xe2b87a14, 0x7bb12bae, 0x0cb61b38,
-0x92d28e9b, 0xe5d5be0d, 0x7cdcefb7, 0x0bdbdf21, 0x86d3d2d4, 0xf1d4e242,
-0x68ddb3f8, 0x1fda836e, 0x81be16cd, 0xf6b9265b, 0x6fb077e1, 0x18b74777,
-0x88085ae6, 0xff0f6a70, 0x66063bca, 0x11010b5c, 0x8f659eff, 0xf862ae69,
-0x616bffd3, 0x166ccf45, 0xa00ae278, 0xd70dd2ee, 0x4e048354, 0x3903b3c2,
-0xa7672661, 0xd06016f7, 0x4969474d, 0x3e6e77db, 0xaed16a4a, 0xd9d65adc,
-0x40df0b66, 0x37d83bf0, 0xa9bcae53, 0xdebb9ec5, 0x47b2cf7f, 0x30b5ffe9,
-0xbdbdf21c, 0xcabac28a, 0x53b39330, 0x24b4a3a6, 0xbad03605, 0xcdd70693,
-0x54de5729, 0x23d967bf, 0xb3667a2e, 0xc4614ab8, 0x5d681b02, 0x2a6f2b94,
-0xb40bbe37, 0xc30c8ea1, 0x5a05df1b, 0x2d02ef8d
-};
-
-#define UPDC32(octet,crc) (crc_32_tab[((crc)\
-^ ((unsigned char)octet)) & 0xff] ^ ((crc) >> 8))
-
-
-unsigned int crc32buf(unsigned char *buf, size_t len)
-{
-    unsigned int oldcrc32;
-
-    oldcrc32 = 0xFFFFFFFF;
-
-    for ( ; len; --len, ++buf)
-    {
-        oldcrc32 = UPDC32(*buf, oldcrc32);
-    }
-
-    return ~oldcrc32;
-
 }
