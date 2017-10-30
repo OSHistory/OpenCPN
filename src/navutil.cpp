@@ -2375,12 +2375,9 @@ void MyConfig::ExportGPXNoFileSelectorVersion2( wxString file_path, bool bviz_on
           if(  pRoute->m_bIsInLayer && !blayer )
               b_add = false;
 
-          if( b_add ) {
-              if( !pRoute->m_bIsTrack )
-                  pgpx->AddGPXRoute( pRoute ); //gpxroot->AddRoute( CreateGPXRte( pRoute ) );
-              else
-                  pgpx->AddGPXTrack( (Track *)pRoute  );
-              }
+          if( b_add )
+              pgpx->AddGPXRoute( pRoute ); //gpxroot->AddRoute( CreateGPXRte( pRoute ) );
+
           node1 = node1->GetNext();
       }
 
