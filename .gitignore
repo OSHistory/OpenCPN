@@ -19,3 +19,9 @@ buildwin/vc/
 buildwin/wxWidgets/
 buildwin/zlib1.dll
 src/opencpn.rc
+
+# Custom ignores
+build_automerge
+CMakeCache.txt
+CMakeFiles
+ISSUES.md
