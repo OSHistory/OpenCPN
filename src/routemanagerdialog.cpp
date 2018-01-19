@@ -1612,10 +1612,8 @@ void RouteManagerDialog::OnTrkMenuSelected( wxCommandEvent &event )
 
                 for(int i=0; i<mergeTrack->GetnPoints(); i++) {
                     tPoint = mergeTrack->GetPoint(i);
-                    newPoint = new TrackPoint( tPoint->m_lat, tPoint->m_lon );
+                    newPoint = new TrackPoint( tPoint->m_lat, tPoint->m_lon, tPoint->GetCreateTime() );
                     newPoint->m_GPXTrkSegNo = 1;
-
-                    newPoint->SetCreateTime(tPoint->GetCreateTime());
 
                     targetTrack->AddPoint( newPoint );
 
@@ -1718,7 +1716,6 @@ void RouteManagerDialog::UpdateTrkListCtrl()
 
     m_pTrkListCtrl->SortItems( SortRoutesOnName, (wxIntPtr) m_pTrkListCtrl );
 
-    m_pTrkListCtrl->SortItems( SortRoutesOnName, (wxIntPtr) m_pTrkListCtrl );
     m_pTrkListCtrl->SetColumnWidth(0, 4 * m_charWidth);
 
     // restore selection if possible
@@ -2040,10 +2037,12 @@ void RouteManagerDialog::UpdateWptListCtrl( RoutePoint *rp_select, bool b_retain
     if( (m_lastWptItem >= 0) && (m_pWptListCtrl->GetItemCount()) )
         m_pWptListCtrl->EnsureVisible( m_lastWptItem );
 
-    int iwidth, iheight;
-    pWayPointMan->Getpmarkicon_image_list()->GetSize(0, iwidth, iheight);
+    if(pWayPointMan->Getpmarkicon_image_list()->GetImageCount()) {
+        int iwidth, iheight;
+        pWayPointMan->Getpmarkicon_image_list()->GetSize(0, iwidth, iheight);
 
-    m_pWptListCtrl->SetColumnWidth(0, wxMax(iwidth + 4, 4 * m_charWidth));
+        m_pWptListCtrl->SetColumnWidth(0, wxMax(iwidth + 4, 4 * m_charWidth));
+    }
 
     UpdateWptButtons();
 }

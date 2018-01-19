@@ -2328,6 +2328,17 @@ void AIS_Decoder::OnTimerAIS( wxTimerEvent& event )
                     remove_array.Add(td->MMSI);         //Add this target to removal list
             }
         }
+        
+        // Remove any targets specified as to be "ignored", so that they won't trigger phantom alerts (e.g. SARTs)
+        for(unsigned int i=0 ; i < g_MMSI_Props_Array.GetCount() ; i++){
+            MMSIProperties *props =  g_MMSI_Props_Array.Item(i);
+            if(td->MMSI == props->MMSI){
+                if(props->m_bignore)
+                    remove_array.Add(td->MMSI);         //Add this target to removal list
+                break;
+            }
+        }
+        
 
         ++it;
     }
@@ -2533,10 +2544,6 @@ AIS_Target_Data *AIS_Decoder::Get_Target_Data_From_MMSI( int mmsi )
 }
 
 
-
-#include <wx/arrimpl.cpp>
-
-WX_DEFINE_OBJARRAY(ArrayOfMMSIProperties);
 
 ArrayOfMMSIProperties   g_MMSI_Props_Array;
 

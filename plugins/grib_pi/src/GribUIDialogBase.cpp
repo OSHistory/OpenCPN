@@ -936,7 +936,11 @@ GribSettingsDialogBase::GribSettingsDialogBase( wxWindow* parent, wxWindowID id,
 	m_ctParticles->Wrap( -1 );
 	fgSizer15->Add( m_ctParticles, 0, wxALL, 5 );
 
+#if defined(__WXOSX__) && !wxCHECK_VERSION(3, 1, 0)
+    m_sParticleDensity = new wxSlider( m_scSetDataPanel, wxID_ANY, 5, 1, 10, wxDefaultPosition, wxDefaultSize, wxSL_BOTTOM|wxSL_HORIZONTAL );
+#else
 	m_sParticleDensity = new wxSlider( m_scSetDataPanel, wxID_ANY, 5, 1, 10, wxDefaultPosition, wxDefaultSize, wxSL_BOTTOM|wxSL_HORIZONTAL|wxSL_LABELS );
+#endif
 	fgSizer15->Add( m_sParticleDensity, 0, wxALL|wxEXPAND, 5 );
 
 
@@ -1397,6 +1401,8 @@ GribPreferencesDialogBase::GribPreferencesDialogBase( wxWindow* parent, wxWindow
 	m_cbCopyMissingWaveRecord = new wxCheckBox( this, wxID_ANY, _("Copy Missing Wave Records"), wxDefaultPosition, wxDefaultSize, 0 );
 	fgSizer46->Add( m_cbCopyMissingWaveRecord, 0, wxALL, 5 );
 
+	m_cbDrawBarbedArrowHead = new wxCheckBox( this, wxID_ANY, _("Draw Barbed Arrows Head"), wxDefaultPosition, wxDefaultSize, 0 );
+	fgSizer46->Add( m_cbDrawBarbedArrowHead, 0, wxALL, 5 );
 
 	sbSizer9->Add( fgSizer46, 1, wxEXPAND, 5 );
 

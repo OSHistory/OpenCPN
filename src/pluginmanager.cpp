@@ -128,6 +128,9 @@ extern ocpnFloatingToolbarDialog *g_MainToolbar;
 extern int              g_chart_zoom_modifier;
 extern int              g_chart_zoom_modifier_vector;
 extern double           g_display_size_mm;
+extern bool             g_bopengl;
+
+extern ChartGroupArray  *g_pGroupArray;
 
 unsigned int      gs_plib_flags;
 
@@ -487,6 +490,12 @@ bool PlugInManager::LoadAllPlugIns(const wxString &plugin_dir, bool load_enabled
     // Tell all the PlugIns about the current OCPN configuration
     SendConfigToAllPlugIns();
 
+    // Inform Plugins of OpenGL configuration, if enabled
+    if(g_bopengl){
+        if(cc1->GetglCanvas())
+            cc1->GetglCanvas()->SendJSONConfigMessage();
+    }
+
     //  And then reload all catalogs.
     ReloadLocale();
 
@@ -508,13 +517,15 @@ bool PlugInManager::CallLateInit(void)
             case 112:
             case 113:
             case 114:
+            case 115:
                 if(pic->m_cap_flag & WANTS_LATE_INIT) {
                     wxString msg(_T("PlugInManager: Calling LateInit PlugIn: "));
                     msg += pic->m_plugin_file;
                     wxLogMessage(msg);
 
                     opencpn_plugin_110* ppi = dynamic_cast<opencpn_plugin_110*>(pic->m_pplugin);
-                    ppi->LateInit();
+                    if (ppi)
+                        ppi->LateInit();
                     }
                 break;
         }
@@ -540,6 +551,7 @@ void PlugInManager::SendVectorChartObjectInfo(const wxString &chart, const wxStr
                 case 112:
                 case 113:
                 case 114:
+		case 115:
                 {
                     opencpn_plugin_112 *ppi = dynamic_cast<opencpn_plugin_112 *>(pic->m_pplugin);
                     if(ppi)
@@ -809,7 +821,7 @@ bool ReadModuleInfoFromELF( const wxString& file, const ModuleInfo::DependencySe
         b_libelf_usable = true;
     }
 
-    int file_handle = 0;
+    int file_handle;
     Elf *elf_handle = NULL;
     GElf_Ehdr elf_file_header;
     Elf_Scn *elf_section_handle = NULL;
@@ -920,7 +932,7 @@ SuccessEpilogue:
 FailureEpilogue:
     if( elf_handle != NULL )
         elf_end( elf_handle );
-    if( file_handle != 0 )
+    if( file_handle >= 0 )
         close( file_handle );
     return false;
 }
@@ -1303,6 +1315,9 @@ PlugInContainer *PlugInManager::LoadPlugIn(wxString plugin_file)
     case 114:
         pic->m_pplugin = dynamic_cast<opencpn_plugin_114*>(plug_in);
         break;
+    case 115:
+        pic->m_pplugin = dynamic_cast<opencpn_plugin_115*>(plug_in);
+        break;
 
     default:
         break;
@@ -1368,13 +1383,13 @@ bool PlugInManager::RenderAllCanvasOverlayPlugIns( ocpnDC &dc, const ViewPort &v
                     case 112:
                     case 113:
                     case 114:
+		    case 115:
                     {
                         opencpn_plugin_18 *ppi = dynamic_cast<opencpn_plugin_18 *>(pic->m_pplugin);
                         if(ppi)
                             ppi->RenderOverlay(*pdc, &pivp);
                         break;
                     }
-
                     default:
                         break;
                     }
@@ -1421,13 +1436,13 @@ bool PlugInManager::RenderAllCanvasOverlayPlugIns( ocpnDC &dc, const ViewPort &v
                     case 112:
                     case 113:
                     case 114:
+                    case 115:
                     {
                         opencpn_plugin_18 *ppi = dynamic_cast<opencpn_plugin_18 *>(pic->m_pplugin);
                         if(ppi)
                             b_rendered = ppi->RenderOverlay(mdc, &pivp);
                         break;
                     }
-
                     default:
                     {
                         b_rendered = pic->m_pplugin->RenderOverlay(&mdc, &pivp);
@@ -1484,6 +1499,7 @@ bool PlugInManager::RenderAllGLCanvasOverlayPlugIns( wxGLContext *pcontext, cons
                 case 112:
                 case 113:
                 case 114:
+                case 115:
                 {
                     opencpn_plugin_18 *ppi = dynamic_cast<opencpn_plugin_18 *>(pic->m_pplugin);
                     if(ppi)
@@ -1508,24 +1524,23 @@ bool PlugInManager::SendMouseEventToPlugins( wxMouseEvent &event)
         PlugInContainer *pic = plugin_array.Item(i);
         if(pic->m_bEnabled && pic->m_bInitState)
         {
-            if(pic->m_cap_flag & WANTS_MOUSE_EVENTS){
+            if(pic->m_cap_flag & WANTS_MOUSE_EVENTS)
             {
                 switch(pic->m_api_version)
                 {
                     case 112:
                     case 113:
                     case 114:
+                    case 115:
                     {
                         opencpn_plugin_112 *ppi = dynamic_cast<opencpn_plugin_112*>(pic->m_pplugin);
-                            if(ppi)
-                                if(ppi->MouseEventHook( event ))
-                                    bret = true;
-                            break;
-                        }
-
-                        default:
-                            break;
+                        if(ppi)
+                            if(ppi->MouseEventHook( event ))
+                                bret = true;
+                        break;
                     }
+                    default:
+                        break;
                 }
             }
         }
@@ -1548,13 +1563,13 @@ bool PlugInManager::SendKeyEventToPlugins( wxKeyEvent &event)
                     {
                         case 113:
                         case 114:
+                        case 115:
                         {
                             opencpn_plugin_113 *ppi = dynamic_cast<opencpn_plugin_113*>(pic->m_pplugin);
                             if(ppi && ppi->KeyboardEventHook( event ))
                                 bret = true;
                             break;
                         }
-
                         default:
                             break;
                     }
@@ -1610,6 +1625,7 @@ void NotifySetupOptionsPlugin( PlugInContainer *pic )
             case 112:
             case 113:
             case 114:
+            case 115:
             {
                 opencpn_plugin_19 *ppi = dynamic_cast<opencpn_plugin_19 *>(pic->m_pplugin);
                 if(ppi) {
@@ -1786,6 +1802,7 @@ void PlugInManager::SendMessageToAllPlugins(const wxString &message_id, const wx
                 case 112:
                 case 113:
                 case 114:
+                case 115:
                 {
                     opencpn_plugin_18 *ppi = dynamic_cast<opencpn_plugin_18 *>(pic->m_pplugin);
                     if(ppi)
@@ -1865,13 +1882,13 @@ void PlugInManager::SendPositionFixToAllPlugIns(GenericPosDatEx *ppos)
                 case 112:
                 case 113:
                 case 114:
+                case 115:
                 {
                     opencpn_plugin_18 *ppi = dynamic_cast<opencpn_plugin_18 *>(pic->m_pplugin);
                     if(ppi)
                         ppi->SetPositionFixEx(pfix_ex);
                     break;
                 }
-
                 default:
                     break;
                 }
@@ -1915,6 +1932,7 @@ void PlugInManager::SendConfigToAllPlugIns()
         v[_T("OpenCPN S52PLIB ShowSoundings")] = ps52plib->GetShowSoundings();
         v[_T("OpenCPN S52PLIB ShowLights")] = !ps52plib->GetLightsOff();
         v[_T("OpenCPN S52PLIB ShowAnchorConditions")] = ps52plib->GetAnchorOn();
+        v[_T("OpenCPN S52PLIB ShowQualityOfData")] = ps52plib->GetQualityOfDataOn();
         v[_T("OpenCPN S52PLIB DisplayCategory")] = ps52plib->GetDisplayCategory();
     }
 
@@ -2672,6 +2690,11 @@ int AddChartToDBInPlace( wxString &full_path, bool b_RefreshCanvas )
             ChartData = new ChartDB();
             ChartData->LoadBinary(ChartListFileName, XnewChartDirArray);
 
+            // Update group contents
+            if(g_pGroupArray)
+                ChartData->ApplyGroupArray(g_pGroupArray);
+
+
             if(g_boptionsactive){
                 g_options->UpdateDisplayedChartDirList(ChartData->GetChartDirArray());
             }
@@ -3259,6 +3282,16 @@ wxArrayString GetWaypointGUIDArray( void )
     return result;
 }
 
+wxArrayString GetIconNameArray(void)
+{
+	wxArrayString result;
+
+	for (int i = 0; i < pWayPointMan->GetNumIcons(); i++) {
+		wxString *ps = pWayPointMan->GetIconKey(i);
+		result.Add(*ps);
+	}
+	return result;
+}
 
 bool AddPlugInRoute( PlugIn_Route *proute, bool b_permanent )
 {
@@ -3772,6 +3805,15 @@ opencpn_plugin_114::~opencpn_plugin_114(void)
 {
 }
 
+//    Opencpn_Plugin_115 Implementation
+opencpn_plugin_115::opencpn_plugin_115(void *pmgr)
+: opencpn_plugin_114(pmgr)
+{
+}
+
+opencpn_plugin_115::~opencpn_plugin_115(void)
+{
+}
 
 //          Helper and interface classes
 
@@ -6385,3 +6427,21 @@ bool PlugInSetFontColor(const wxString TextElement, const wxColour color)
 {
   return FontMgr::Get().SetFontColor(TextElement, color);
 }
+
+/* API 1.15 */
+
+double PlugInGetDisplaySizeMM()
+{
+    return g_Platform->GetDisplaySizeMM();
+}
+
+wxFont* FindOrCreateFont_PlugIn( int point_size, wxFontFamily family,
+                    wxFontStyle style, wxFontWeight weight, bool underline,
+                    const wxString &facename,
+                    wxFontEncoding encoding)
+{
+    return FontMgr::Get().FindOrCreateFont(point_size, family, style, weight, underline, facename, encoding);
+}
+
+int PluginGetMinAvailableGshhgQuality() { return cc1->GetMinAvailableGshhgQuality(); }
+int PluginGetMaxAvailableGshhgQuality() { return cc1->GetMaxAvailableGshhgQuality(); }
