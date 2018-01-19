@@ -592,6 +592,11 @@ void grib_pi::SetPluginMessage(wxString &message_id, wxString &message_body)
 
         }
     }
+    if (message_id == _T("GRIB_FILE_LOAD_REQUEST"))
+    {
+      std::cout << "You requested to load the following file" << std::endl;
+      std::cout << message_body << std::endl;
+    }
 }
 
 bool grib_pi::LoadConfig(void)
