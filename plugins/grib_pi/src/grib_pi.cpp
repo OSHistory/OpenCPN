@@ -24,7 +24,7 @@
  ***************************************************************************
  */
 
-
+#include "GribUIDialog.h"
 #include "wx/wxprec.h"
 
 #ifndef  WX_PRECOMP
@@ -594,8 +594,11 @@ void grib_pi::SetPluginMessage(wxString &message_id, wxString &message_body)
     }
     if (message_id == _T("GRIB_FILE_LOAD_REQUEST"))
     {
+      std::cout << "Message from GRIB Plugin: " << std::endl;
       std::cout << "You requested to load the following file" << std::endl;
       std::cout << message_body << std::endl;
+      std::cout << "TBD: We need to load the file first obviously, but trigger now" << std::endl; 
+      SendPluginMessage(wxString(_T("GRIB_FILE_LOAD_COMPLETE")), "/home/foo/my-grib.grib");
     }
 }
 
