@@ -385,6 +385,161 @@ void GRIBUICtrlBar::SetRequestBitmap( int type )
     }
 }
 
+void GRIBUICtrlBar::OpenFileNoDialog(wxString gribFilePath, bool newestFile)
+{
+	m_bpPlay->SetBitmapLabel(GetScaledBitmap(wxBitmap(play), _T("play"), m_ScaledFactor));
+    m_cRecordForecast->Clear();
+    pPlugIn->GetGRIBOverlayFactory()->ClearParticles();
+	m_Altitude = 0;
+    m_FileIntervalIndex = m_OverlaySettings.m_SlicesPerUpdate;
+    delete m_bGRIBActiveFile;
+    delete m_pTimelineSet;
+    m_pTimelineSet = NULL;
+    m_sTimeline->SetValue(0);
+    m_TimeLineHours = 0;
+    m_InterpolateMode = false;
+    m_pNowMode = false;
+    m_SelectionIsSaved = false;
+    m_HasAltitude = false;
+
+    //get more recent file in default directory if necessary
+    wxFileName f;
+    if( newestFile )
+        m_file_names.Clear();       //file names list must be cleared if we expect only the newest file! otherwise newest file is
+                                    //added to the previously recorded, what we don't want
+    if( m_file_names.IsEmpty() ) {    //in any case were there is no filename previously recorded, we must take the newest
+        m_file_names = GetFilesInDirectory();
+				std::cout << "Called from openFile" << std::endl;
+				std::cout << m_file_names.Item(0) << std::endl;
+        newestFile = true;
+    }
+
+		m_file_names.Clear();
+		m_file_names.Add(gribFilePath);
+    m_bGRIBActiveFile = new GRIBFile( m_file_names,
+                                      pPlugIn->GetCopyFirstCumRec(),
+                                      pPlugIn->GetCopyMissWaveRec(),
+                                      newestFile );
+
+    ArrayOfGribRecordSets *rsa = m_bGRIBActiveFile->GetRecordSetArrayPtr();
+    wxString title;
+
+    if( m_bGRIBActiveFile->IsOK() ) {
+        wxFileName fn( m_bGRIBActiveFile->GetFileNames()[0] );
+				std::cout << fn.GetFullName() << std::endl;
+        title = ( _("File: ") );
+        title.Append( fn.GetFullName() );
+        if( rsa->GetCount() == 0 ) {                        //valid but empty file
+            delete m_bGRIBActiveFile;
+            m_bGRIBActiveFile = NULL;
+            title.Prepend( _("Error! ") ).Append( _(" contains no valid data!") );
+        } else {
+            PopulateComboDataList();
+            title.append( _T(" (") + TToString( m_bGRIBActiveFile->GetRefDateTime(), pPlugIn->GetTimeZone()) + _T(" )"));
+
+            if( rsa->GetCount() > 1 ) {
+                GribRecordSet &first=rsa->Item(0), &second = rsa->Item(1), &last = rsa->Item(rsa->GetCount()-1);
+
+                //compute ntotal time span
+                wxTimeSpan span = wxDateTime(last.m_Reference_Time) - wxDateTime(first.m_Reference_Time);
+                m_TimeLineHours = span.GetHours();
+
+                //get file interval index and update intervale choice if necessary
+                int halfintermin(wxTimeSpan(wxDateTime(second.m_Reference_Time) - wxDateTime(first.m_Reference_Time)).GetMinutes() / 2);
+                for( m_FileIntervalIndex = 0;; m_FileIntervalIndex++){
+                    if(m_OverlaySettings.GetMinFromIndex(m_FileIntervalIndex) > halfintermin) break;
+                }
+                if (m_FileIntervalIndex > 0)
+                    m_FileIntervalIndex--;
+                if(m_OverlaySettings.m_SlicesPerUpdate > m_FileIntervalIndex) m_OverlaySettings.m_SlicesPerUpdate = m_FileIntervalIndex;
+            }
+        }
+    } else {
+        delete m_bGRIBActiveFile;
+        m_bGRIBActiveFile = NULL;
+        title = _("No valid GRIB file");
+    }
+    pPlugIn->GetGRIBOverlayFactory()->SetMessage( title );
+    SetTitle( title );
+    SetTimeLineMax(false);
+    SetFactoryOptions();
+    if( pPlugIn->GetStartOptions() && m_TimeLineHours != 0)                             //fix a crash for one date files
+        ComputeBestForecastForNow();
+    else
+        TimelineChanged();
+
+	//populate  altitude choice and show if necessary
+    if (m_pTimelineSet && m_bGRIBActiveFile) for( int i = 1; i<5; i++) {
+        if( m_bGRIBActiveFile->m_GribIdxArray.Index(Idx_WIND_VX + i) != wxNOT_FOUND
+            && m_bGRIBActiveFile->m_GribIdxArray.Index(Idx_WIND_VY + i) != wxNOT_FOUND )
+                m_HasAltitude = true;
+    }
+    m_Altitude = 0;             //set altitude at std
+
+    //enable buttons according with file contents to ovoid crashes
+#ifdef __OCPN__ANDROID__
+    m_bpSettings->Enable(true);
+#else
+    m_bpSettings->Enable(m_pTimelineSet != NULL);
+#endif
+    m_bpZoomToCenter->Enable(m_pTimelineSet != NULL);
+
+    m_sTimeline->Enable(m_pTimelineSet != NULL && m_TimeLineHours);
+    m_bpPlay->Enable(m_pTimelineSet != NULL && m_TimeLineHours);
+
+    m_bpPrev->Enable(m_pTimelineSet != NULL && m_TimeLineHours);
+    m_bpNext->Enable(m_pTimelineSet != NULL && m_TimeLineHours);
+    m_bpNow->Enable(m_pTimelineSet != NULL && m_TimeLineHours);
+
+    SetCanvasContextMenuItemViz( pPlugIn->m_MenuItem, m_TimeLineHours != 0);
+
+    //
+    if( m_bGRIBActiveFile == NULL)
+    {
+        // there's no data we can use in this file
+        return;
+    }
+    //  Try to verify that there will be at least one parameter in the GRIB file that is enabled for display
+    //  This will ensure that at least "some" data is displayed on file change,
+    //  and so avoid user confusion of no data shown.
+    //  This is especially important if cursor tracking of data is disabled.
+
+    bool bconfigOK = false;
+    if(m_bDataPlot[GribOverlaySettings::WIND] && (m_bGRIBActiveFile->m_GribIdxArray.Index(Idx_WIND_VX) != wxNOT_FOUND))
+        bconfigOK = true;
+    if(m_bDataPlot[GribOverlaySettings::WIND_GUST] && (m_bGRIBActiveFile->m_GribIdxArray.Index(Idx_WIND_GUST) != wxNOT_FOUND))
+        bconfigOK = true;
+    if(m_bDataPlot[GribOverlaySettings::PRESSURE] && (m_bGRIBActiveFile->m_GribIdxArray.Index(Idx_PRESSURE) != wxNOT_FOUND))
+        bconfigOK = true;
+    if(m_bDataPlot[GribOverlaySettings::WAVE] && (m_bGRIBActiveFile->m_GribIdxArray.Index(Idx_WVDIR) != wxNOT_FOUND))
+        bconfigOK = true;
+    if(m_bDataPlot[GribOverlaySettings::WAVE] && (m_bGRIBActiveFile->m_GribIdxArray.Index(Idx_HTSIGW) != wxNOT_FOUND))
+        bconfigOK = true;
+    if(m_bDataPlot[GribOverlaySettings::CURRENT] && (m_bGRIBActiveFile->m_GribIdxArray.Index(Idx_SEACURRENT_VX) != wxNOT_FOUND))
+        bconfigOK = true;
+    if(m_bDataPlot[GribOverlaySettings::PRECIPITATION] && (m_bGRIBActiveFile->m_GribIdxArray.Index(Idx_PRECIP_TOT) != wxNOT_FOUND))
+        bconfigOK = true;
+    if(m_bDataPlot[GribOverlaySettings::CLOUD] && (m_bGRIBActiveFile->m_GribIdxArray.Index(Idx_CLOUD_TOT) != wxNOT_FOUND))
+        bconfigOK = true;
+    if(m_bDataPlot[GribOverlaySettings::AIR_TEMPERATURE] && (m_bGRIBActiveFile->m_GribIdxArray.Index(Idx_AIR_TEMP) != wxNOT_FOUND))
+        bconfigOK = true;
+    if(m_bDataPlot[GribOverlaySettings::SEA_TEMPERATURE] && (m_bGRIBActiveFile->m_GribIdxArray.Index(Idx_SEA_TEMP) != wxNOT_FOUND))
+        bconfigOK = true;
+    if(m_bDataPlot[GribOverlaySettings::CAPE] && (m_bGRIBActiveFile->m_GribIdxArray.Index(Idx_CAPE) != wxNOT_FOUND))
+        bconfigOK = true;
+
+    //  If no parameter seems to be enabled by config, enable them all just to be sure something shows.
+    if(!bconfigOK){
+        for(int i=0 ; i < (int)GribOverlaySettings::GEO_ALTITUDE ; i++){
+            if (InDataPlot(i)) {
+                m_bDataPlot[i]  = true;
+            }
+        }
+    }
+		std::cout << "Done Loading grib, sending message" << std::endl;
+		SendPluginMessage(wxString(_T("GRIB_FILE_LOAD_COMPLETE")), gribFilePath);
+}
+
 void GRIBUICtrlBar::OpenFile(bool newestFile)
 {
 	m_bpPlay->SetBitmapLabel(GetScaledBitmap(wxBitmap(play), _T("play"), m_ScaledFactor));
@@ -425,7 +580,7 @@ void GRIBUICtrlBar::OpenFile(bool newestFile)
 
     if( m_bGRIBActiveFile->IsOK() ) {
         wxFileName fn( m_bGRIBActiveFile->GetFileNames()[0] );
-				std::cout << fn.GetFullName() << std::endl; 
+				std::cout << fn.GetFullName() << std::endl;
         title = ( _("File: ") );
         title.Append( fn.GetFullName() );
         if( rsa->GetCount() == 0 ) {                        //valid but empty file

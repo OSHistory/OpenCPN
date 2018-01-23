@@ -90,7 +90,7 @@ public:
     ~GRIBUICtrlBar();
 
     void OpenFile( bool newestFile = false );
-
+    void OpenFileNoDialog(wxString gribFilePath, bool newestFile = false); 
     void ContextMenuItemCallback(int id);
     void SetFactoryOptions();
 
@@ -114,7 +114,7 @@ public:
     void SetScaledBitmap( double factor );
     wxBitmap GetScaledBitmap(wxBitmap bitmap, const wxString svgFileName, double scale_factor);
     void OpenFileFromJSON( wxString json);
-        
+
     wxWindow *pParent;
     GribOverlaySettings m_OverlaySettings;
 
@@ -148,7 +148,7 @@ private:
     void OnOpenFile( wxCommandEvent& event );
     void OnRequest(  wxCommandEvent& event );
     void OnCompositeDialog( wxCommandEvent& event );
-    
+
     void OnTimeline( wxScrollEvent& event );
 	void OnShowCursorData( wxCommandEvent& event );
 

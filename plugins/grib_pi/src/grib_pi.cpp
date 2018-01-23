@@ -597,8 +597,7 @@ void grib_pi::SetPluginMessage(wxString &message_id, wxString &message_body)
       std::cout << "Message from GRIB Plugin: " << std::endl;
       std::cout << "You requested to load the following file" << std::endl;
       std::cout << message_body << std::endl;
-      std::cout << "TBD: We need to load the file first obviously, but trigger now" << std::endl; 
-      SendPluginMessage(wxString(_T("GRIB_FILE_LOAD_COMPLETE")), "/home/foo/my-grib.grib");
+      m_pGribCtrlBar->OpenFileNoDialog(message_body);
     }
 }
 
