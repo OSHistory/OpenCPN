@@ -2378,63 +2378,78 @@ void MyConfig::UpdateNavObj( void )
 }
 
 //CHANGE: add function to export without GUI
-void MyConfig::ExportGPXNoFileSelectorVersion2( wxString file_path, bool bviz_only, bool blayer )
+void MyConfig::ExportGPXNoFileSelector( wxString file_path, bool bviz_only, bool blayer )
 {
-  //wxString path = file_path;
-  //wxString path;
+    wxFileName fn(file_path);
+    m_gpx_path = fn.GetPath();
+    fn.SetExt(_T("gpx"));
 
-  if( 1 ) {
-      wxFileName fn(file_path);
-      m_gpx_path = fn.GetPath();
-      fn.SetExt(_T("gpx"));
+    NavObjectCollection1 *pgpx = new NavObjectCollection1;
+    int count = pWayPointMan->GetWaypointList()->GetCount();
 
-      NavObjectCollection1 *pgpx = new NavObjectCollection1;
+    //WPTs
+    int ic = 0;
 
-      int count = pWayPointMan->GetWaypointList()->GetCount();
-      //WPTs
-      int ic = 0;
+    wxRoutePointListNode *node = pWayPointMan->GetWaypointList()->GetFirst();
+    RoutePoint *pr;
+    while( node ) {
+        pr = node->GetData();
 
-      wxRoutePointListNode *node = pWayPointMan->GetWaypointList()->GetFirst();
-      RoutePoint *pr;
-      while( node ) {
-          pr = node->GetData();
+        bool b_add = true;
 
-          bool b_add = true;
+        if( bviz_only && !pr->m_bIsVisible )
+            b_add = false;
 
-          if( bviz_only && !pr->m_bIsVisible )
-              b_add = false;
+        if( pr->m_bIsInLayer && !blayer )
+            b_add = false;
+        if( b_add) {
+            if( pr->m_bKeepXRoute || !WptIsInRouteList( pr ) )
+                pgpx->AddGPXWaypoint( pr);
+        }
 
-          if( pr->m_bIsInLayer && !blayer )
-              b_add = false;
-          if( b_add) {
-              if( pr->m_bKeepXRoute || !WptIsInRouteList( pr ) )
-                  pgpx->AddGPXWaypoint( pr);
-          }
-
-          node = node->GetNext();
-      }
-      //RTEs and TRKs
-      wxRouteListNode *node1 = pRouteList->GetFirst();
-      while( node1 ) {
-          Route *pRoute = node1->GetData();
-
-          bool b_add = true;
-
-          if( bviz_only && !pRoute->IsVisible() )
-              b_add = false;
-
-          if(  pRoute->m_bIsInLayer && !blayer )
-              b_add = false;
-
-          if( b_add )
-              pgpx->AddGPXRoute( pRoute ); //gpxroot->AddRoute( CreateGPXRte( pRoute ) );
-
-          node1 = node1->GetNext();
-      }
-
-      pgpx->SaveFile( fn.GetFullPath() );
-      delete pgpx;
+        node = node->GetNext();
     }
+    //RTEs and TRKs
+    wxRouteListNode *node1 = pRouteList->GetFirst();
+    while( node1 ) {
+        std::cout << "Iterating node" << std::endl;
+        Route *pRoute = node1->GetData();
+
+        bool b_add = true;
+
+        if( bviz_only && !pRoute->IsVisible() )
+            b_add = false;
+
+        if(  pRoute->m_bIsInLayer && !blayer )
+            b_add = false;
+
+        if( b_add )
+            pgpx->AddGPXRoute( pRoute ); //gpxroot->AddRoute( CreateGPXRte( pRoute ) );
+
+        node1 = node1->GetNext();
+    }
+    wxTrackListNode *node2 = pTrackList->GetFirst();
+    while( node2 ) {
+        Track *pTrack = node2->GetData();
+
+        bool b_add = true;
+
+        if( bviz_only && !pTrack->IsVisible() )
+            b_add = false;
+
+        if(  pTrack->m_bIsInLayer && !blayer )
+            b_add = false;
+
+        if( b_add )
+                pgpx->AddGPXTrack( pTrack );
+        node2 = node2->GetNext();
+    }
+    std::cout << "Export OCPN" << std::endl;
+    std::cout << fn.GetFullPath() << std::endl;
+
+    pgpx->SaveFile( fn.GetFullPath() );
+    delete pgpx;
+
 }
 
 bool MyConfig::ExportGPXRoutes( wxWindow* parent, RouteList *pRoutes, const wxString suggestedName )

@@ -156,7 +156,7 @@ public:
       bool LoadLayers(wxString &path);
 
       //CHANGE: declare function to export without GUI
-      void ExportGPXNoFileSelectorVersion2( wxString file_path, bool bviz_only = true, bool blayer = false);
+      void ExportGPXNoFileSelector( wxString file_path, bool bviz_only = true, bool blayer = false);
 
       void ExportGPX(wxWindow* parent, bool bviz_only = false, bool blayer = false);
       void UI_ImportGPX(wxWindow* parent, bool islayer = false, wxString dirpath = _T(""), bool isdirectory = true);

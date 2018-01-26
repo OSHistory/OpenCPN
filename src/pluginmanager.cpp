@@ -2938,7 +2938,7 @@ void sayHi()
 void exportGpx(wxString file_path)
 {
 	std::cout << "Exporting gpx file without file selector!" << std::endl;
-	pConfig->ExportGPXNoFileSelectorVersion2(file_path, true, true);
+	pConfig->ExportGPXNoFileSelector(file_path, true, true);
 }
 
 // CHANGE: delete Tracks via API
