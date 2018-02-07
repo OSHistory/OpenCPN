@@ -102,6 +102,7 @@ int grib_pi::Init(void)
 
       ::wxDisplaySize(&m_display_width, &m_display_height);
 
+      std::cout << "INITIALIZING GRIB" << std::endl;
       m_DialogStyleChanged = false;
 
       //    Get a pointer to the opencpn configuration object
@@ -141,6 +142,10 @@ int grib_pi::Init(void)
           m_CtrlBarxy = wxPoint( 20, 60 );   //reset to the default position
           m_CursorDataxy = wxPoint( 20, 170 );
       }
+
+      // Open GRIB Dialog
+      // TODO: Side effects of calling with zero?
+      OnToolbarToolCallback(0);
 
       return (WANTS_OVERLAY_CALLBACK |
               WANTS_OPENGL_OVERLAY_CALLBACK |
