@@ -282,6 +282,7 @@ class options : private Uncopyable,
   void OnXidOkClick(wxCommandEvent &event);
   void OnCancelClick(wxCommandEvent &event);
   void OnChooseFont(wxCommandEvent &event);
+  void OnFontChoice(wxCommandEvent &event);
   void OnCPAWarnClick(wxCommandEvent &event);
   void OnSizeAutoButton(wxCommandEvent &event);
   void OnSizeManualButton(wxCommandEvent &event);
@@ -354,7 +355,7 @@ class options : private Uncopyable,
   wxTextCtrl *pCOGUPUpdateSecs, *m_pText_OSCOG_Predictor, *pScreenMM;
   wxTextCtrl *pToolbarHideSecs, *m_pText_OSHDT_Predictor;
   wxChoice *m_pShipIconType, *m_pcTCDatasets;
-  wxSlider *m_pSlider_Zoom, *m_pSlider_GUI_Factor, *m_pSlider_Chart_Factor;
+  wxSlider *m_pSlider_Zoom, *m_pSlider_GUI_Factor, *m_pSlider_Chart_Factor, *m_pSlider_Ship_Factor;
   wxSlider *m_pSlider_Zoom_Vector;
   // LIVE ETA OPTION
   wxCheckBox *pSLiveETA;
@@ -495,6 +496,7 @@ class options : private Uncopyable,
   // For the font page
   wxBoxSizer *m_itemBoxSizerFontPanel;
   wxChoice *m_itemFontElementListBox, *m_itemStyleListBox, *m_itemLangListBox;
+  wxStaticText *m_textSample;
   bool m_bVisitLang;
 
   // For "AIS Options"
