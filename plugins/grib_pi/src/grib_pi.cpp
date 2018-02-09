@@ -145,7 +145,13 @@ int grib_pi::Init(void)
 
       // Open GRIB Dialog
       // TODO: Side effects of calling with zero?
-      OnToolbarToolCallback(0);
+      bool autoStart;
+      m_pconfig->SetPath ( _T( "/Automatization" ) );
+      m_pconfig->Read ( _T ( "AutoStartPlugins" ), &autoStart);
+      if (autoStart) {
+        std::cout << "Auto start requested" << std::endl; 
+        OnToolbarToolCallback(0);
+      }
 
       return (WANTS_OVERLAY_CALLBACK |
               WANTS_OPENGL_OVERLAY_CALLBACK |
