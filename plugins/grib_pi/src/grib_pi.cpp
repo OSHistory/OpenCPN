@@ -102,7 +102,6 @@ int grib_pi::Init(void)
 
       ::wxDisplaySize(&m_display_width, &m_display_height);
 
-      std::cout << "INITIALIZING GRIB" << std::endl;
       m_DialogStyleChanged = false;
 
       //    Get a pointer to the opencpn configuration object
@@ -149,7 +148,7 @@ int grib_pi::Init(void)
       m_pconfig->SetPath ( _T( "/Automatization" ) );
       m_pconfig->Read ( _T ( "AutoStartPlugins" ), &autoStart);
       if (autoStart) {
-        std::cout << "Auto start requested" << std::endl; 
+        wxLogMessage("Auto-Starting GRIB-Plugin");
         OnToolbarToolCallback(0);
       }
 
@@ -605,9 +604,6 @@ void grib_pi::SetPluginMessage(wxString &message_id, wxString &message_body)
     }
     if (message_id == _T("GRIB_FILE_LOAD_REQUEST"))
     {
-      std::cout << "Message from GRIB Plugin: " << std::endl;
-      std::cout << "You requested to load the following file" << std::endl;
-      std::cout << message_body << std::endl;
       m_pGribCtrlBar->OpenFileNoDialog(message_body);
     }
 }

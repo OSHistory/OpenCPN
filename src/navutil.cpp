@@ -826,7 +826,7 @@ int MyConfig::LoadMyConfig()
     Read( _T ( "EnableAISNameCache" ),  &g_benableAISNameCache );
 
     Read( _T ( "EnableUDPNullHeader" ),  &g_benableUDPNullHeader, 0 );
-    
+
     SetPath( _T ( "/Settings/GlobalState" ) );
     Read( _T ( "bFollow" ), &st_bFollow );
 
@@ -2420,7 +2420,6 @@ void MyConfig::ExportGPXNoFileSelector( wxString file_path, bool bviz_only, bool
     //RTEs and TRKs
     wxRouteListNode *node1 = pRouteList->GetFirst();
     while( node1 ) {
-        std::cout << "Iterating node" << std::endl;
         Route *pRoute = node1->GetData();
 
         bool b_add = true;
@@ -2452,8 +2451,6 @@ void MyConfig::ExportGPXNoFileSelector( wxString file_path, bool bviz_only, bool
                 pgpx->AddGPXTrack( pTrack );
         node2 = node2->GetNext();
     }
-    std::cout << "Export OCPN" << std::endl;
-    std::cout << fn.GetFullPath() << std::endl;
 
     pgpx->SaveFile( fn.GetFullPath() );
     delete pgpx;

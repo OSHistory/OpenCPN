@@ -409,8 +409,6 @@ void GRIBUICtrlBar::OpenFileNoDialog(wxString gribFilePath, bool newestFile)
                                     //added to the previously recorded, what we don't want
     if( m_file_names.IsEmpty() ) {    //in any case were there is no filename previously recorded, we must take the newest
         m_file_names = GetFilesInDirectory();
-				std::cout << "Called from openFile" << std::endl;
-				std::cout << m_file_names.Item(0) << std::endl;
         newestFile = true;
     }
 
@@ -426,7 +424,6 @@ void GRIBUICtrlBar::OpenFileNoDialog(wxString gribFilePath, bool newestFile)
 
     if( m_bGRIBActiveFile->IsOK() ) {
         wxFileName fn( m_bGRIBActiveFile->GetFileNames()[0] );
-				std::cout << fn.GetFullName() << std::endl;
         title = ( _("File: ") );
         title.Append( fn.GetFullName() );
         if( rsa->GetCount() == 0 ) {                        //valid but empty file
@@ -536,7 +533,6 @@ void GRIBUICtrlBar::OpenFileNoDialog(wxString gribFilePath, bool newestFile)
             }
         }
     }
-		std::cout << "Done Loading grib, sending message" << std::endl;
 		SendPluginMessage(wxString(_T("GRIB_FILE_LOAD_COMPLETE")), gribFilePath);
 }
 
@@ -564,8 +560,6 @@ void GRIBUICtrlBar::OpenFile(bool newestFile)
                                     //added to the previously recorded, what we don't want
     if( m_file_names.IsEmpty() ) {    //in any case were there is no filename previously recorded, we must take the newest
         m_file_names = GetFilesInDirectory();
-				std::cout << "Called from openFile" << std::endl;
-				std::cout << m_file_names.Item(0) << std::endl;
         newestFile = true;
     }
 
@@ -580,7 +574,6 @@ void GRIBUICtrlBar::OpenFile(bool newestFile)
 
     if( m_bGRIBActiveFile->IsOK() ) {
         wxFileName fn( m_bGRIBActiveFile->GetFileNames()[0] );
-				std::cout << fn.GetFullName() << std::endl;
         title = ( _("File: ") );
         title.Append( fn.GetFullName() );
         if( rsa->GetCount() == 0 ) {                        //valid but empty file
@@ -1558,9 +1551,6 @@ void GRIBUICtrlBar::OnOpenFile( wxCommandEvent& event )
         ::wxBeginBusyCursor();
 
         m_grib_dir = dialog->GetDirectory();
-				std::cout << "m_file_names" << std::endl;
-				std::cout << m_file_names.GetCount() << std::endl;
-				std::cout << m_file_names.Item(0) << std::endl;
 
         dialog->GetPaths(m_file_names);
         OpenFile();

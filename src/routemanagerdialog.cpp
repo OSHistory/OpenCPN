@@ -1937,7 +1937,6 @@ void RouteManagerDialog::OnTrkRouteFromTrackClick( wxCommandEvent &event )
 
 void RouteManagerDialog::OnTrkDeleteAllClick( wxCommandEvent &event )
 {
-    std::cout << "Clicked delete all" << std::endl;
     int dialog_ret = OCPNMessageBox( this, _("Are you sure you want to delete <ALL> tracks?"),
             wxString( _("OpenCPN Alert") ), wxYES_NO );
 
@@ -2388,7 +2387,7 @@ void RouteManagerDialog::OnWptSendToGPSClick( wxCommandEvent &event )
 #ifdef __WXOSX__
     ShowWithEffect(wxSHOW_EFFECT_BLEND );
 #endif
-    
+
     delete pdlg;
 }
 

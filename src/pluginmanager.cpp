@@ -2931,17 +2931,9 @@ void fromSM_ECC_Plugin(double x, double y, double lat0, double lon0, double *lat
     fromSM_ECC(x, y, lat0, lon0, lat, lon);
 }
 
-//CHANGE: User API Definitions
-// CHANGE: useless, but for testing purpose
-void sayHi()
-{
-	std::cout << "Hello, world!" << std::endl;
-}
-
 // CHANGE: actual desired interface to the exporting function
 void exportGpx(wxString file_path)
 {
-	std::cout << "Exporting gpx file without file selector!" << std::endl;
 	pConfig->ExportGPXNoFileSelector(file_path, true, true);
 }
 
@@ -2949,7 +2941,6 @@ void exportGpx(wxString file_path)
 // Reproduces void RouteManagerDialog::OnTrkDeleteAllClick( wxCommandEvent &event ) form routemanagerdialog.cpp
 void deleteAllTracks()
 {
-  std::cout << "Removing all tracks via API!" << std::endl;
   g_pRouteMan->DeleteAllTracks();
 
   // probably GUI related

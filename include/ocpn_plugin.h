@@ -675,8 +675,6 @@ extern "C"  DECL_EXP void JumpToPosition(double lat, double lon, double scale);
 /* Study the original OpenCPN source (georef.c) for functional definitions  */
 
 // CHANGE: USER ADDITION
-// CHANGE: useless function to test plugin-API
-extern "C" DECL_EXP void sayHi();
 // CHANGE export gpx without GUI
 extern "C" DECL_EXP void exportGpx(wxString file_path);
 // CHANGE: enable removal of old tracks via API
@@ -817,29 +815,29 @@ class DECL_EXP PlugInChartBaseExtended : public PlugInChartBase
 public:
     PlugInChartBaseExtended();
     virtual ~PlugInChartBaseExtended();
-    
+
     virtual int RenderRegionViewOnGL( const wxGLContext &glc, const PlugIn_ViewPort& VPoint,
                                       const wxRegion &Region, bool b_use_stencil );
-    
+
     virtual wxBitmap &RenderRegionViewOnDCNoText(  const PlugIn_ViewPort& VPoint, const wxRegion &Region);
     virtual bool RenderRegionViewOnDCTextOnly( wxMemoryDC &dc, const PlugIn_ViewPort& VPoint, const wxRegion &Region);
-    
+
     virtual int RenderRegionViewOnGLNoText( const wxGLContext &glc, const PlugIn_ViewPort& VPoint,
                                             const wxRegion &Region, bool b_use_stencil );
 
     virtual int RenderRegionViewOnGLTextOnly( const wxGLContext &glc, const PlugIn_ViewPort& VPoint,
                                               const wxRegion &Region, bool b_use_stencil );
-    
+
     virtual ListOfPI_S57Obj *GetObjRuleListAtLatLon(float lat, float lon, float select_radius, PlugIn_ViewPort *VPoint);
     virtual wxString CreateObjDescriptions( ListOfPI_S57Obj* obj_list );
-    
+
     virtual int GetNoCOVREntries();
     virtual int GetNoCOVRTablePoints(int iTable);
     virtual int  GetNoCOVRTablenPoints(int iTable);
     virtual float *GetNoCOVRTableHead(int iTable);
-    
+
     virtual void ClearPLIBTextList();
-    
+
 };
 
 
@@ -1236,8 +1234,8 @@ extern DECL_EXP bool PlugInSetFontColor(const wxString TextElement, const wxColo
 // API 1.15
 extern DECL_EXP double PlugInGetDisplaySizeMM();
 
-// 
-extern DECL_EXP wxFont* FindOrCreateFont_PlugIn( int point_size, wxFontFamily family, 
+//
+extern DECL_EXP wxFont* FindOrCreateFont_PlugIn( int point_size, wxFontFamily family,
                     wxFontStyle style, wxFontWeight weight, bool underline = false,
                     const wxString &facename = wxEmptyString,
                     wxFontEncoding encoding = wxFONTENCODING_DEFAULT );
