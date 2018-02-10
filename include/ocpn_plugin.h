@@ -676,9 +676,9 @@ extern "C"  DECL_EXP void JumpToPosition(double lat, double lon, double scale);
 
 // CHANGE: USER ADDITION
 // CHANGE export gpx without GUI
-extern "C" DECL_EXP void exportGpx(wxString file_path);
+extern "C" DECL_EXP void ExportGpx(wxString file_path);
 // CHANGE: enable removal of old tracks via API
-extern "C" DECL_EXP void deleteAllTracks();
+extern "C" DECL_EXP void DeleteAllTracks();
 
 extern "C" DECL_EXP void PositionBearingDistanceMercator_Plugin(double lat, double lon, double brg, double dist, double *dlat, double *dlon);
 extern "C" DECL_EXP void DistanceBearingMercator_Plugin(double lat0, double lon0, double lat1, double lon1, double *brg, double *dist);

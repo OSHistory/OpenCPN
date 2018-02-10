@@ -2932,14 +2932,14 @@ void fromSM_ECC_Plugin(double x, double y, double lat0, double lon0, double *lat
 }
 
 // CHANGE: actual desired interface to the exporting function
-void exportGpx(wxString file_path)
+void ExportGpx(wxString file_path)
 {
 	pConfig->ExportGPXNoFileSelector(file_path, true, true);
 }
 
 // CHANGE: delete Tracks via API
 // Reproduces void RouteManagerDialog::OnTrkDeleteAllClick( wxCommandEvent &event ) form routemanagerdialog.cpp
-void deleteAllTracks()
+void DeleteAllTracks()
 {
   g_pRouteMan->DeleteAllTracks();
 
@@ -2951,8 +2951,8 @@ void deleteAllTracks()
 
   //TODO: necessary?
   //m_bNeedConfigFlush = true;
-
 }
+
 double toUsrDistance_Plugin( double nm_distance, int unit )
 {
     return toUsrDistance( nm_distance, unit );
